@@ -283,7 +283,7 @@ function ScreenViewer({
         <div className="screen-viewer-body">
           <div className="screen-viewer-content">
             {latestFrame ? (
-              <img ref={imgRef} src={`data:image/jpeg;base64,${latestFrame}`}
+              <img ref={imgRef} src={latestFrame}
                 alt="Device Screen" className="screen-frame" onClick={handleImgClick}
                 title="Click to tap on device" />
             ) : (
@@ -1250,56 +1250,19 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-function ConfigurationRequired() {
-  return (
-    <div className="login-page">
-      <div className="app-bg">
-        <div className="app-bg-orb app-bg-orb-1" />
-        <div className="app-bg-orb app-bg-orb-2" />
-      </div>
-      <div className="login-card">
-        <div className="login-header">
-          <div className="login-logo"><Shield size={32} color="#000" /></div>
-          <div className="login-title">HYBRID CONTROL</div>
-          <div className="login-sub">Configuration Required</div>
-        </div>
-        <div className="error-msg" style={{ textAlign: 'left', lineHeight: 1.6 }}>
-          <strong>Supabase credentials are not set.</strong><br /><br />
-          Please add:<br />
-          <code style={{ display: 'block', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
-            VITE_SUPABASE_URL<br />VITE_SUPABASE_ANON_KEY
-          </code>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function AppContent() {
-  const [session, setSession] = useState<null | import('@supabase/supabase-js').Session>(null);
-  const [loading, setLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(api.isLoggedIn());
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => { setSession(s); setLoading(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => subscription.unsubscribe();
-  }, []);
+  const handleLogin = () => setLoggedIn(true);
+  const handleLogout = () => { api.logout(); setLoggedIn(false); };
 
-  if (loading) return (
-    <div className="login-page">
-      <div className="app-bg"><div className="app-bg-orb app-bg-orb-1" /><div className="app-bg-orb app-bg-orb-2" /></div>
-      <div style={{ color: '#fff', fontSize: 18 }}>Loading...</div>
-    </div>
-  );
-
-  return session ? (
-    <Dashboard session={session} onLogout={() => setSession(null)} />
+  return loggedIn ? (
+    <Dashboard onLogout={handleLogout} />
   ) : (
-    <LoginPage onLogin={() => supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s))} />
+    <LoginPage onLogin={handleLogin} />
   );
 }
 
 export default function App() {
-  if (!isSupabaseConfigured) return <ConfigurationRequired />;
   return <AppContent />;
 }
