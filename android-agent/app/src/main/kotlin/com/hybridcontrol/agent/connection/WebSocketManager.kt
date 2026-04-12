@@ -106,13 +106,18 @@ class WebSocketManager(
         commandPollJob?.cancel()
         commandPollJob = scope.launch {
             val authManager = HybridControlApp.instance.authManager
-            val deviceId = authManager.getDeviceId()
+            val deviceUuid = authManager.getDeviceUuid()
+
+            if (deviceUuid == null) {
+                Log.e(TAG, "Device UUID not available, cannot poll for commands")
+                return@launch
+            }
 
             while (isActive && isConnected) {
                 try {
-                    // Query for PENDING commands targeting this device
+                    // Query for PENDING commands targeting this device (using UUID PK)
                     val request = Request.Builder()
-                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?device_id=eq.$deviceId&status=eq.PENDING&order=created_at.asc&limit=10")
+                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?device_id=eq.$deviceUuid&status=eq.PENDING&order=created_at.asc&limit=10")
                         .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
                         .addHeader("Authorization", "Bearer $token")
                         .build()
@@ -196,8 +201,13 @@ class WebSocketManager(
 
             // Also write to logs table
             val authManager = HybridControlApp.instance.authManager
+            val deviceUuid = authManager.getDeviceUuid()
+            if (deviceUuid == null) {
+                Log.w(TAG, "Device UUID not available, skipping log entry")
+                return
+            }
             val logData = gson.toJson(mapOf(
-                "device_id" to authManager.getDeviceId(),
+                "device_id" to deviceUuid,
                 "user_id" to authManager.getUserId(),
                 "message" to "Command ${result.type}: ${if (result.success) "SUCCESS" else "FAILED"}",
                 "level" to if (result.success) "INFO" else "ERROR"

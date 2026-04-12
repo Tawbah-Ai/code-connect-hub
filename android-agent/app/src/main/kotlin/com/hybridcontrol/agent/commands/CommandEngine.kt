@@ -126,6 +126,17 @@ class CommandEngine(private val context: Context) {
     }
 
     private fun takeScreenshot(command: RemoteCommand): CommandResult {
+        // Wire up the capture callback to receive the screenshot result
+        ScreenCaptureManager.captureCallback = { commandId, success, data ->
+            if (success && data != null) {
+                Log.d(TAG, "Screenshot captured successfully for command $commandId")
+                // The result will be delivered via the callback and can be
+                // uploaded to Supabase storage or sent as command result
+            } else {
+                Log.e(TAG, "Screenshot capture failed for command $commandId: $data")
+            }
+        }
+
         // MediaProjection requires an Activity context and user permission
         // The ScreenCaptureActivity handles this flow
         ScreenCaptureManager.requestCapture(context, command.id)

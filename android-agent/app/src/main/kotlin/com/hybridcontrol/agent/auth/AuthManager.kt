@@ -27,7 +27,7 @@ class AuthManager(private val context: Context) {
         .build()
 
     val isLoggedIn: Boolean
-        get() = getAccessToken() != null
+        get() = getAccessToken()?.isNotEmpty() == true
 
     val userEmail: String?
         get() = prefs.getString(KEY_EMAIL, null)
@@ -40,6 +40,8 @@ class AuthManager(private val context: Context) {
     fun getUserId(): String? = prefs.getString(KEY_USER_ID, null)
 
     fun getDeviceId(): String = DeviceUtils.getDeviceId(context)
+
+    fun getDeviceUuid(): String? = prefs.getString(KEY_DEVICE_UUID, null)
 
     suspend fun login(email: String, password: String) = withContext(Dispatchers.IO) {
         val json = gson.toJson(mapOf("email" to email, "password" to password))
@@ -105,8 +107,7 @@ class AuthManager(private val context: Context) {
             saveAuthData(email, accessToken, userId)
             registerDevice(accessToken, userId)
         } else {
-            // Email confirmation may be required
-            saveAuthData(email, "", userId)
+            // Email confirmation may be required — do NOT save empty token
             throw Exception("Check your email to confirm your account, then login")
         }
     }
@@ -148,18 +149,58 @@ class AuthManager(private val context: Context) {
             .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
             .addHeader("Authorization", "Bearer $accessToken")
             .addHeader("Content-Type", "application/json")
-            .addHeader("Prefer", "resolution=merge-duplicates")
+            .addHeader("Prefer", "resolution=merge-duplicates,return=representation")
             .post(deviceData.toRequestBody("application/json".toMediaType()))
             .build()
 
         val upsertResp = client.newCall(upsertReq).execute()
+        val upsertBody = upsertResp.body?.string()
         if (!upsertResp.isSuccessful) {
-            Log.w(TAG, "Device registration failed: ${upsertResp.body?.string()}")
+            Log.w(TAG, "Device registration failed: $upsertBody")
+        }
+
+        // Try to get the device's UUID primary key from the response
+        var deviceUuid: String? = null
+        if (upsertBody != null) {
+            try {
+                // Response may be a single object or array
+                val parsed = if (upsertBody.trimStart().startsWith("[")) {
+                    val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+                    val list = gson.fromJson<List<Map<String, Any>>>(upsertBody, type)
+                    list.firstOrNull()
+                } else {
+                    parseJson(upsertBody)
+                }
+                deviceUuid = parsed?.get("id") as? String
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse device UUID from response: ${e.message}")
+            }
+        }
+
+        // If upsert didn't return UUID, query for it
+        if (deviceUuid == null) {
+            try {
+                val queryReq = Request.Builder()
+                    .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?device_id=eq.${deviceInfo.deviceId}&user_id=eq.$userId&select=id")
+                    .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    .addHeader("Authorization", "Bearer $accessToken")
+                    .build()
+                val queryResp = client.newCall(queryReq).execute()
+                val queryBody = queryResp.body?.string()
+                if (queryResp.isSuccessful && queryBody != null) {
+                    val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+                    val list = gson.fromJson<List<Map<String, Any>>>(queryBody, type)
+                    deviceUuid = list.firstOrNull()?.get("id") as? String
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to query device UUID: ${e.message}")
+            }
         }
 
         prefs.edit()
             .putString(KEY_ROLE, role)
             .putString(KEY_DEVICE_ID, deviceInfo.deviceId)
+            .apply { deviceUuid?.let { putString(KEY_DEVICE_UUID, it) } }
             .apply()
     }
 
@@ -171,7 +212,7 @@ class AuthManager(private val context: Context) {
             .apply()
     }
 
-    fun logout() {
+    suspend fun logout() = withContext(Dispatchers.IO) {
         val token = getAccessToken()
         if (token != null && token.isNotEmpty()) {
             try {
@@ -202,5 +243,6 @@ class AuthManager(private val context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_EMAIL = "email"
         private const val KEY_ROLE = "role"
+        private const val KEY_DEVICE_UUID = "device_uuid"
     }
 }
