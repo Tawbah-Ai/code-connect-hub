@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import com.hybridcontrol.agent.HybridControlApp
+import com.hybridcontrol.agent.R
 import com.hybridcontrol.agent.connection.WebSocketManager
 import com.hybridcontrol.agent.databinding.ActivityMainBinding
 import com.hybridcontrol.agent.model.CommandResult
