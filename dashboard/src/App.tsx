@@ -25,10 +25,16 @@ import {
   Radio,
   KeyRound,
   Copy,
+  Bell,
+  CheckCheck,
+  AlertTriangle,
+  AlertCircle,
+  CheckCircle2,
+  LayoutDashboard,
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { api } from './services/api';
-import type { Device, Command, ControlMode, LogEntry, PairingCode } from './types';
+import type { Device, Command, ControlMode, LogEntry, PairingCode, AppNotification } from './types';
 import type { Session } from '@supabase/supabase-js';
 import './App.css';
 
@@ -208,6 +214,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [showScreenViewer, setShowScreenViewer] = useState(false);
   const [pairingCode, setPairingCode] = useState<PairingCode | null>(null);
   const [pairingLoading, setPairingLoading] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'notifications'>('dashboard');
 
   const userEmail = session.user.email || 'User';
   const userId = session.user.id;
@@ -231,6 +239,26 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     ]);
   }, []);
 
+  const addNotification = useCallback((
+    level: AppNotification['level'],
+    title: string,
+    message: string,
+    deviceName?: string
+  ) => {
+    setNotifications((prev) => [
+      {
+        id: Date.now().toString() + Math.random(),
+        timestamp: new Date(),
+        level,
+        title,
+        message,
+        read: false,
+        deviceName,
+      },
+      ...prev.slice(0, 199),
+    ]);
+  }, []);
+
   const fetchDevices = useCallback(async () => {
     try {
       const result = await api.getDevices();
@@ -246,15 +274,35 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
     // Subscribe to realtime device changes
     api.subscribeToDevices(userId, (updatedDevices) => {
-      setDevices(updatedDevices);
+      setDevices((prevDevices) => {
+        updatedDevices.forEach((d) => {
+          const prev = prevDevices.find((p) => p.id === d.id);
+          if (prev && prev.status !== d.status) {
+            if (d.status === 'ONLINE') {
+              addNotification('success', 'Device Online', `${d.device_name} is now connected.`, d.device_name);
+            } else {
+              addNotification('warning', 'Device Offline', `${d.device_name} has disconnected.`, d.device_name);
+            }
+          }
+        });
+        const newDevices = updatedDevices.filter(
+          (d) => !prevDevices.some((p) => p.id === d.id)
+        );
+        newDevices.forEach((d) => {
+          addNotification('info', 'New Device Registered', `${d.device_name} has been added to your account.`, d.device_name);
+        });
+        return updatedDevices;
+      });
     });
 
     // Subscribe to realtime command updates
     api.subscribeToCommands(userId, (command: Command) => {
       if (command.status === 'EXECUTED') {
         addLog('result', `Command ${command.type} executed successfully`, command.result);
+        addNotification('success', 'Command Executed', `${command.type} completed successfully.`);
       } else if (command.status === 'FAILED') {
         addLog('error', `Command ${command.type} failed`, command.result);
+        addNotification('error', 'Command Failed', `${command.type} failed to execute.`);
       }
     });
 
@@ -319,6 +367,13 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   };
 
   const isDeviceOnline = selectedDevice?.status === 'ONLINE';
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const markAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const clearNotifications = () => setNotifications([]);
 
   return (
     <div className="app-container">
@@ -341,6 +396,19 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </div>
           </div>
           <div className="header-right">
+            <button
+              className={`btn-notif ${activeTab === 'notifications' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab(activeTab === 'notifications' ? 'dashboard' : 'notifications');
+                if (activeTab !== 'notifications') markAllRead();
+              }}
+              title="Notifications"
+            >
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+              )}
+            </button>
             <div className="header-user">
               <User size={16} />
               <span>{userEmail}</span>
@@ -352,6 +420,94 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           </div>
         </header>
 
+        {/* Tab Navigation */}
+        <div className="tab-nav">
+          <button
+            className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <LayoutDashboard size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Dashboard
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'notifications' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('notifications'); markAllRead(); }}
+          >
+            <Bell size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Notifications
+            {unreadCount > 0 && (
+              <span className="tab-badge">{unreadCount}</span>
+            )}
+          </button>
+        </div>
+
+        {/* Notifications Panel */}
+        {activeTab === 'notifications' && (
+          <div className="notifications-page">
+            <div className="glass-card">
+              <div className="card-header">
+                <span className="card-title">
+                  <Bell size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+                  Alerts & Notifications
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {notifications.length > 0 && (
+                    <>
+                      <button className="notif-action-btn" onClick={markAllRead} title="Mark all as read">
+                        <CheckCheck size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                        Mark read
+                      </button>
+                      <button className="notif-action-btn danger" onClick={clearNotifications} title="Clear all">
+                        <X size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                        Clear all
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {notifications.length === 0 ? (
+                <div className="empty-state">
+                  <Bell size={40} />
+                  <h3>No notifications</h3>
+                  <p>Alerts will appear here when devices connect, disconnect, or commands are executed.</p>
+                </div>
+              ) : (
+                <div className="notif-list">
+                  {notifications.map((notif) => (
+                    <div
+                      key={notif.id}
+                      className={`notif-item ${notif.level} ${notif.read ? 'read' : 'unread'}`}
+                      onClick={() => setNotifications((prev) => prev.map((n) => n.id === notif.id ? { ...n, read: true } : n))}
+                    >
+                      <div className="notif-icon">
+                        {notif.level === 'success' && <CheckCircle2 size={18} />}
+                        {notif.level === 'warning' && <AlertTriangle size={18} />}
+                        {notif.level === 'error' && <AlertCircle size={18} />}
+                        {notif.level === 'info' && <Bell size={18} />}
+                      </div>
+                      <div className="notif-body">
+                        <div className="notif-header-row">
+                          <span className="notif-title">{notif.title}</span>
+                          {notif.deviceName && (
+                            <span className="notif-device">
+                              <Smartphone size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                              {notif.deviceName}
+                            </span>
+                          )}
+                          {!notif.read && <span className="notif-dot" />}
+                        </div>
+                        <p className="notif-message">{notif.message}</p>
+                        <span className="notif-time">{notif.timestamp.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'dashboard' && <>
         <div className="stats-grid">
           <div className="stat-card">
             <div className="stat-icon cyan"><Smartphone size={18} /></div>
@@ -712,6 +868,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             )}
           </div>
         </div>
+        </>}
       </div>
 
       {/* Screen Viewer Modal */}

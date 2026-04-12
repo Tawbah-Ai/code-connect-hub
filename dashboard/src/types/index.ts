@@ -44,3 +44,13 @@ export interface PairingCode {
   used_by_device_id: string | null;
   created_at: string;
 }
+
+export interface AppNotification {
+  id: string;
+  timestamp: Date;
+  level: 'info' | 'warning' | 'error' | 'success';
+  title: string;
+  message: string;
+  read: boolean;
+  deviceName?: string;
+}

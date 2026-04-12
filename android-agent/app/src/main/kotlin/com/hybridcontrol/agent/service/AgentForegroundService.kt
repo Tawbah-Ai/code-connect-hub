@@ -86,7 +86,7 @@ class AgentForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, HybridControlApp.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Hybrid Control Client is active")
+            .setContentTitle(getString(R.string.foreground_notification_title))
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)

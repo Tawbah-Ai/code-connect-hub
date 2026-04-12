@@ -39,11 +39,11 @@ class MainActivity : AppCompatActivity() {
         if (denied.isNotEmpty()) {
             Toast.makeText(
                 this,
-                "بعض الصلاحيات مرفوضة. قد تعمل بعض الميزات بشكل محدود.",
+                "Some permissions were denied. Some features may be limited.",
                 Toast.LENGTH_LONG
             ).show()
         }
-        checkSpecialPermissions()
+        checkBatteryOptimization()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -257,9 +257,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun confirmRemoteControlConsent() {
         AlertDialog.Builder(this)
-            .setTitle("Start remote control client?")
-            .setMessage("Only continue if this is your device or you have explicit permission. While active, the dashboard can request device information, screenshots, screen streaming, and touch gestures. A persistent notification will stay visible.")
-            .setPositiveButton("Start") { _, _ -> requestNotificationPermissionAndStart() }
+            .setTitle(getString(R.string.consent_title))
+            .setMessage(getString(R.string.consent_message))
+            .setPositiveButton("Enable") { _, _ -> requestNotificationPermissionAndStart() }
             .setNegativeButton("Cancel", null)
             .show()
     }
