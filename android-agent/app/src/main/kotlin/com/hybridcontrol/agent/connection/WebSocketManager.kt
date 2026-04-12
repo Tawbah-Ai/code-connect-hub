@@ -47,7 +47,7 @@ class WebSocketManager(
         private const val MAX_CONSECUTIVE_FAILURES = 3
     }
 
-    private val connectionListeners = mutableListOf<ConnectionListener>()
+    private val connectionListeners = java.util.concurrent.CopyOnWriteArrayList<ConnectionListener>()
 
     interface ConnectionListener {
         fun onConnected()
@@ -297,6 +297,8 @@ class WebSocketManager(
                     try {
                         updateDeviceStatus("ONLINE", token)
                         isConnected = true
+                        consecutivePollFailures = 0
+                        consecutiveHeartbeatFailures = 0
                         connectionListeners.forEach { it.onConnected() }
                         startCommandPolling(token)
                         startHeartbeat(token)
