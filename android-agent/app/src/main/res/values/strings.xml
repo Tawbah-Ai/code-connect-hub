@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hybrid Control</string>
+    <string name="accessibility_description">Enables touch-based remote control for the Hybrid Control system. This service allows remote tap, swipe, and text input commands.</string>
+    <string name="notification_channel_name">Agent Service</string>
+    <string name="notification_channel_description">Keeps the remote control agent running in the background</string>
+</resources>
