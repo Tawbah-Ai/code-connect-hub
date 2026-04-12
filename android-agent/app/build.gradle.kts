@@ -14,8 +14,11 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        buildConfigField("String", "SUPABASE_URL", "\"https://favgtfaoboznfsycmwqy.supabase.co\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhdmd0ZmFvYm96bmZzeWNtd3F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5NzE1MDMsImV4cCI6MjA5MTU0NzUwM30.8xMjgy6NAdxCmS6b8tTOE8goSu_XpwtYf3Wx1LZK9jI\"")
+        // Read Supabase credentials from local.properties (gitignored)
+        val supabaseUrl: String = project.findProperty("SUPABASE_URL") as? String ?: ""
+        val supabaseAnonKey: String = project.findProperty("SUPABASE_ANON_KEY") as? String ?: ""
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {

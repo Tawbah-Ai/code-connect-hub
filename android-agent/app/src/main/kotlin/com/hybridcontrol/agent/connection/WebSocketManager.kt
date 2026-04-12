@@ -41,6 +41,11 @@ class WebSocketManager(
     private var reconnectJob: Job? = null
     private var controlMode = ControlMode.HYBRID
     private val processingCommandIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private var consecutivePollFailures = 0
+    private var consecutiveHeartbeatFailures = 0
+    private companion object FailureThresholds {
+        private const val MAX_CONSECUTIVE_FAILURES = 3
+    }
 
     private val connectionListeners = mutableListOf<ConnectionListener>()
 
@@ -89,7 +94,7 @@ class WebSocketManager(
     private fun updateDeviceStatus(status: String, token: String) {
         val authManager = HybridControlApp.instance.authManager
         val deviceId = authManager.getDeviceId()
-        val userId = authManager.getUserId() ?: return
+        val userId = authManager.getUserId() ?: throw IllegalStateException("User ID not available")
 
         val updateData = gson.toJson(mapOf(
             "status" to status,
@@ -105,11 +110,7 @@ class WebSocketManager(
             .patch(updateData.toRequestBody("application/json".toMediaType()))
             .build()
 
-        try {
-            client.newCall(request).execute().use { /* close response to avoid connection leak */ }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to update device status: ${e.message}")
-        }
+        client.newCall(request).execute().use { /* close response to avoid connection leak */ }
     }
 
     private fun startCommandPolling(token: String) {
@@ -136,6 +137,7 @@ class WebSocketManager(
                     val body = response.body?.string()
 
                     if (response.isSuccessful && body != null) {
+                        consecutivePollFailures = 0
                         val type = object : TypeToken<List<Map<String, Any>>>() {}.type
                         val commands: List<Map<String, Any>> = gson.fromJson(body, type)
 
@@ -161,6 +163,12 @@ class WebSocketManager(
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Command poll error: ${e.message}")
+                    consecutivePollFailures++
+                    if (consecutivePollFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        Log.e(TAG, "$MAX_CONSECUTIVE_FAILURES consecutive poll failures, triggering disconnect")
+                        handleDisconnect()
+                        return@launch
+                    }
                 }
 
                 delay(2000) // Poll every 2 seconds
@@ -248,7 +256,18 @@ class WebSocketManager(
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (isActive && isConnected) {
-                updateDeviceStatus("ONLINE", token)
+                try {
+                    updateDeviceStatus("ONLINE", token)
+                    consecutiveHeartbeatFailures = 0
+                } catch (e: Exception) {
+                    Log.w(TAG, "Heartbeat failed: ${e.message}")
+                    consecutiveHeartbeatFailures++
+                    if (consecutiveHeartbeatFailures >= MAX_CONSECUTIVE_FAILURES) {
+                        Log.e(TAG, "$MAX_CONSECUTIVE_FAILURES consecutive heartbeat failures, triggering disconnect")
+                        handleDisconnect()
+                        return@launch
+                    }
+                }
                 delay(15_000)
             }
         }
@@ -306,7 +325,11 @@ class WebSocketManager(
         scope.launch {
             val token = HybridControlApp.instance.authManager.getAccessToken()
             if (token != null) {
-                updateDeviceStatus("OFFLINE", token)
+                try {
+                    updateDeviceStatus("OFFLINE", token)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to set OFFLINE status on disconnect: ${e.message}")
+                }
             }
         }
 

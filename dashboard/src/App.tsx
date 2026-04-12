@@ -224,6 +224,18 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
     };
   }, [fetchDevices, userId, addLog]);
 
+  // Keep selectedDevice in sync with latest device data from realtime updates
+  useEffect(() => {
+    if (selectedDevice) {
+      const updated = devices.find((d) => d.id === selectedDevice.id);
+      if (updated) {
+        setSelectedDevice(updated);
+      } else {
+        setSelectedDevice(null);
+      }
+    }
+  }, [devices]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sendCommand = async (type: string, payload: Record<string, unknown> = {}) => {
     if (!selectedDevice) {
       addLog('error', 'No device selected');
