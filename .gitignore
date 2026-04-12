@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+*.apk
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Android
+android-agent/.gradle/
+android-agent/app/build/
+android-agent/build/
+android-agent/local.properties
+android-agent/captures/
+android-agent/.externalNativeBuild/
+android-agent/.cxx/
+
+# TypeScript
+*.tsbuildinfo
