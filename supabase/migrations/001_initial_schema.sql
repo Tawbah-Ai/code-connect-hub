@@ -139,18 +139,30 @@ CREATE TRIGGER update_commands_updated_at
 -- STORAGE: Create bucket for screen captures
 -- ============================================
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('screenshots', 'screenshots', true)
+VALUES ('screenshots', 'screenshots', false)
 ON CONFLICT (id) DO NOTHING;
 
--- Storage policies for screenshots bucket
-CREATE POLICY "Users can upload screenshots"
+-- Storage policies for screenshots bucket (user-scoped via path: {user_id}/filename)
+CREATE POLICY "Users can upload own screenshots"
   ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'screenshots' AND auth.role() = 'authenticated');
+  WITH CHECK (
+    bucket_id = 'screenshots'
+    AND auth.role() = 'authenticated'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
 
-CREATE POLICY "Anyone can view screenshots"
+CREATE POLICY "Users can view own screenshots"
   ON storage.objects FOR SELECT
-  USING (bucket_id = 'screenshots');
+  USING (
+    bucket_id = 'screenshots'
+    AND auth.role() = 'authenticated'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
 
 CREATE POLICY "Users can delete own screenshots"
   ON storage.objects FOR DELETE
-  USING (bucket_id = 'screenshots' AND auth.role() = 'authenticated');
+  USING (
+    bucket_id = 'screenshots'
+    AND auth.role() = 'authenticated'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );

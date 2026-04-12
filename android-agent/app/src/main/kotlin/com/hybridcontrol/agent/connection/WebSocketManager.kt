@@ -40,9 +40,9 @@ class WebSocketManager(
     private var commandPollJob: Job? = null
     private var reconnectJob: Job? = null
     private var controlMode = ControlMode.HYBRID
-    private val processingCommandIds = mutableSetOf<String>()
+    private val processingCommandIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-    var connectionListener: ConnectionListener? = null
+    private val connectionListeners = mutableListOf<ConnectionListener>()
 
     interface ConnectionListener {
         fun onConnected()
@@ -50,6 +50,14 @@ class WebSocketManager(
         fun onCommandReceived(command: RemoteCommand)
         fun onCommandResult(result: CommandResult)
         fun onError(error: String)
+    }
+
+    fun addConnectionListener(listener: ConnectionListener) {
+        connectionListeners.add(listener)
+    }
+
+    fun removeConnectionListener(listener: ConnectionListener) {
+        connectionListeners.remove(listener)
     }
 
     fun connect(token: String) {
@@ -61,7 +69,7 @@ class WebSocketManager(
                 updateDeviceStatus("ONLINE", token)
 
                 isConnected = true
-                connectionListener?.onConnected()
+                connectionListeners.forEach { it.onConnected() }
 
                 // Start polling for commands
                 startCommandPolling(token)
@@ -72,7 +80,7 @@ class WebSocketManager(
                 Log.d(TAG, "Connected to Supabase")
             } catch (e: Exception) {
                 Log.e(TAG, "Connection failed: ${e.message}")
-                connectionListener?.onError(e.message ?: "Connection failed")
+                connectionListeners.forEach { it.onError(e.message ?: "Connection failed") }
                 handleDisconnect()
             }
         }
@@ -147,7 +155,7 @@ class WebSocketManager(
                             )
 
                             processingCommandIds.add(cmdId)
-                            connectionListener?.onCommandReceived(command)
+                            connectionListeners.forEach { it.onCommandReceived(command) }
                             executeCommand(command, token)
                         }
                     }
@@ -175,7 +183,7 @@ class WebSocketManager(
                     }
                 }
 
-                connectionListener?.onCommandResult(result)
+                connectionListeners.forEach { it.onCommandResult(result) }
                 updateCommandResult(command.id, result, token)
             } finally {
                 processingCommandIds.remove(command.id)
@@ -250,7 +258,7 @@ class WebSocketManager(
         isConnected = false
         heartbeatJob?.cancel()
         commandPollJob?.cancel()
-        connectionListener?.onDisconnected()
+        connectionListeners.forEach { it.onDisconnected() }
 
         // Only start reconnect if not already reconnecting
         if (shouldReconnect && (reconnectJob == null || reconnectJob?.isActive != true)) {
@@ -270,7 +278,7 @@ class WebSocketManager(
                     try {
                         updateDeviceStatus("ONLINE", token)
                         isConnected = true
-                        connectionListener?.onConnected()
+                        connectionListeners.forEach { it.onConnected() }
                         startCommandPolling(token)
                         startHeartbeat(token)
                         Log.d(TAG, "Reconnected to Supabase")
