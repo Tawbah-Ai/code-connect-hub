@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Smartphone,
   Wifi,
@@ -18,9 +18,13 @@ import {
   Battery,
   HardDrive,
   AppWindow,
+  Tv,
+  X,
 } from 'lucide-react';
+import { supabase } from './lib/supabase';
 import { api } from './services/api';
-import type { Device, ControlMode, LogEntry } from './types';
+import type { Device, Command, ControlMode, LogEntry } from './types';
+import type { Session } from '@supabase/supabase-js';
 import './App.css';
 
 function LoginPage({ onLogin }: { onLogin: () => void }) {
@@ -105,7 +109,61 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function Dashboard({ onLogout }: { onLogout: () => void }) {
+function ScreenViewer({ device, onClose }: { device: Device; onClose: () => void }) {
+  const [frame, setFrame] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    api.subscribeToScreenStream(device.id, (frameData: string) => {
+      setFrame(frameData);
+      setConnected(true);
+    });
+
+    return () => {
+      api.unsubscribeFromScreenStream();
+    };
+  }, [device.id]);
+
+  return (
+    <div className="screen-viewer-overlay">
+      <div className="screen-viewer">
+        <div className="screen-viewer-header">
+          <div className="screen-viewer-title">
+            <Tv size={16} />
+            <span>Live Screen: {device.device_name}</span>
+            <span className={`status-dot ${connected ? 'online' : 'offline'}`} />
+          </div>
+          <button className="screen-viewer-close" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="screen-viewer-content">
+          {frame ? (
+            <img
+              ref={imgRef}
+              src={`data:image/jpeg;base64,${frame}`}
+              alt="Device Screen"
+              className="screen-frame"
+            />
+          ) : (
+            <div className="screen-viewer-placeholder">
+              <Tv size={48} />
+              <p>Waiting for screen stream...</p>
+              <p className="screen-hint">
+                {device.status === 'ONLINE'
+                  ? 'Device is online. Stream will appear when the agent sends frames.'
+                  : 'Device is offline. Connect the device to start streaming.'}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [controlMode, setControlMode] = useState<ControlMode>('HYBRID');
@@ -116,8 +174,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [inputText, setInputText] = useState('');
   const [filePath, setFilePath] = useState('');
   const [packageName, setPackageName] = useState('');
+  const [showScreenViewer, setShowScreenViewer] = useState(false);
 
-  const userEmail = localStorage.getItem('user_email') || 'User';
+  const userEmail = session.user.email || 'User';
+  const userId = session.user.id;
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: unknown) => {
     setLogs((prev) => [
@@ -135,17 +195,34 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const fetchDevices = useCallback(async () => {
     try {
       const result = await api.getDevices();
-      setDevices(result.devices);
+      setDevices(result);
     } catch (err) {
       addLog('error', `Failed to fetch devices: ${err instanceof Error ? err.message : 'Unknown'}`);
     }
   }, [addLog]);
 
+  // Initial fetch + realtime subscription
   useEffect(() => {
     fetchDevices();
-    const interval = setInterval(fetchDevices, 5000);
-    return () => clearInterval(interval);
-  }, [fetchDevices]);
+
+    // Subscribe to realtime device changes
+    api.subscribeToDevices(userId, (updatedDevices) => {
+      setDevices(updatedDevices);
+    });
+
+    // Subscribe to realtime command updates
+    api.subscribeToCommands(userId, (command: Command) => {
+      if (command.status === 'EXECUTED') {
+        addLog('result', `Command ${command.type} executed successfully`, command.result);
+      } else if (command.status === 'FAILED') {
+        addLog('error', `Command ${command.type} failed`, command.result);
+      }
+    });
+
+    return () => {
+      api.unsubscribeAll();
+    };
+  }, [fetchDevices, userId, addLog]);
 
   const sendCommand = async (type: string, payload: Record<string, unknown> = {}) => {
     if (!selectedDevice) {
@@ -154,13 +231,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     }
 
     setLoading(true);
-    addLog('command', `Sending ${type} to ${selectedDevice.deviceName}`);
+    addLog('command', `Sending ${type} to ${selectedDevice.device_name}`);
 
     try {
-      const result = await api.sendCommand(selectedDevice.deviceId, type, payload);
-      if (result.success) {
-        addLog('result', `Command sent: ${type} (ID: ${result.commandId})`);
-      }
+      const result = await api.sendCommand(selectedDevice.id, type, payload);
+      addLog('info', `Command queued: ${type} (ID: ${result.id.substring(0, 8)})`);
     } catch (err) {
       addLog('error', `Command failed: ${err instanceof Error ? err.message : 'Unknown'}`);
     } finally {
@@ -168,12 +243,12 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  const handleLogout = () => {
-    api.clearToken();
+  const handleLogout = async () => {
+    await api.logout();
     onLogout();
   };
 
-  const isDeviceOnline = selectedDevice?.isConnected || selectedDevice?.status === 'online';
+  const isDeviceOnline = selectedDevice?.status === 'ONLINE';
 
   return (
     <div className="app-container">
@@ -213,7 +288,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
             <div className="card-header">
               <span className="card-title">Devices</span>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {devices.filter((d) => d.isConnected).length}/{devices.length} online
+                {devices.filter((d) => d.status === 'ONLINE').length}/{devices.length} online
               </span>
             </div>
             {devices.length === 0 ? (
@@ -226,8 +301,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               <div className="device-list">
                 {devices.map((device) => (
                   <div
-                    key={device.deviceId}
-                    className={`device-item ${selectedDevice?.deviceId === device.deviceId ? 'selected' : ''}`}
+                    key={device.id}
+                    className={`device-item ${selectedDevice?.id === device.id ? 'selected' : ''}`}
                     onClick={() => setSelectedDevice(device)}
                   >
                     <div className="device-info">
@@ -235,17 +310,17 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                         <Smartphone size={22} color="var(--accent-cyan)" />
                       </div>
                       <div className="device-details">
-                        <h3>{device.deviceName}</h3>
-                        <p>{device.model} - Android {device.osVersion}</p>
+                        <h3>{device.device_name}</h3>
+                        <p>{device.model} - {device.os_version}</p>
                       </div>
                     </div>
                     <div className="device-meta">
                       <span className={`role-badge ${device.role.toLowerCase()}`}>
                         {device.role}
                       </span>
-                      <span className={`status-badge ${device.isConnected ? 'online' : 'offline'}`}>
-                        <span className={`status-dot ${device.isConnected ? 'online' : 'offline'}`} />
-                        {device.isConnected ? 'Online' : 'Offline'}
+                      <span className={`status-badge ${device.status === 'ONLINE' ? 'online' : 'offline'}`}>
+                        <span className={`status-dot ${device.status === 'ONLINE' ? 'online' : 'offline'}`} />
+                        {device.status === 'ONLINE' ? 'Online' : 'Offline'}
                       </span>
                     </div>
                   </div>
@@ -260,7 +335,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               <span className="card-title">Commands</span>
               {selectedDevice && (
                 <span style={{ fontSize: 12, color: 'var(--accent-cyan)' }}>
-                  Target: {selectedDevice.deviceName}
+                  Target: {selectedDevice.device_name}
                 </span>
               )}
             </div>
@@ -273,6 +348,18 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
               </div>
             ) : (
               <>
+                {/* Live Screen Button */}
+                {selectedDevice.role === 'CLIENT' && (
+                  <button
+                    className="btn-screen-view"
+                    onClick={() => setShowScreenViewer(true)}
+                    disabled={!isDeviceOnline}
+                  >
+                    <Tv size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                    View Live Screen
+                  </button>
+                )}
+
                 {/* System Commands */}
                 <div className="command-grid">
                   <button
@@ -491,17 +578,55 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       </div>
+
+      {/* Screen Viewer Modal */}
+      {showScreenViewer && selectedDevice && (
+        <ScreenViewer
+          device={selectedDevice}
+          onClose={() => setShowScreenViewer(false)}
+        />
+      )}
     </div>
   );
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(api.isAuthenticated());
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  return isAuthenticated ? (
-    <Dashboard onLogout={() => setIsAuthenticated(false)} />
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="login-page">
+        <div className="app-bg">
+          <div className="app-bg-orb app-bg-orb-1" />
+          <div className="app-bg-orb app-bg-orb-2" />
+        </div>
+        <div style={{ color: '#fff', fontSize: 18 }}>Loading...</div>
+      </div>
+    );
+  }
+
+  return session ? (
+    <Dashboard session={session} onLogout={() => setSession(null)} />
   ) : (
-    <LoginPage onLogin={() => setIsAuthenticated(true)} />
+    <LoginPage onLogin={() => {
+      supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
+    }} />
   );
 }
 

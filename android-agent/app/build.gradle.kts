@@ -14,8 +14,8 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        buildConfigField("String", "WS_URL", "\"ws://10.0.2.2:3000\"")
-        buildConfigField("String", "API_URL", "\"http://10.0.2.2:3000\"")
+        buildConfigField("String", "SUPABASE_URL", "\"https://favgtfaoboznfsycmwqy.supabase.co\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhdmd0ZmFvYm96bmZzeWNtd3F5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5NzE1MDMsImV4cCI6MjA5MTU0NzUwM30.8xMjgy6NAdxCmS6b8tTOE8goSu_XpwtYf3Wx1LZK9jI\"")
     }
 
     buildTypes {
@@ -54,7 +54,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-ktx:1.8.2")
 
-    // OkHttp for WebSocket
+    // OkHttp for HTTP requests
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Gson for JSON

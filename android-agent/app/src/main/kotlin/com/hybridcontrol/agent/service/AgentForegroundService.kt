@@ -36,7 +36,7 @@ class AgentForegroundService : Service() {
         val notification = createNotification("Connecting...")
         startForeground(HybridControlApp.NOTIFICATION_ID, notification)
 
-        val token = HybridControlApp.instance.authManager.getToken()
+        val token = HybridControlApp.instance.authManager.getAccessToken()
         if (token != null) {
             webSocketManager.connectionListener = object : WebSocketManager.ConnectionListener {
                 override fun onConnected() {
