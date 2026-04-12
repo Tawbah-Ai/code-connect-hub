@@ -1,6 +1,13 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+}
+
+val localProperties = Properties().also { props ->
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) props.load(localFile.inputStream())
 }
 
 android {
@@ -14,10 +21,9 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        // Read Supabase credentials from local.properties (gitignored)
-        val supabaseUrl: String = project.findProperty("SUPABASE_URL") as? String ?: ""
-        val supabaseAnonKey: String = project.findProperty("SUPABASE_ANON_KEY") as? String ?: ""
-        val backendUrl: String = project.findProperty("BACKEND_URL") as? String ?: ""
+        val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: ""
+        val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: ""
+        val backendUrl: String = localProperties.getProperty("BACKEND_URL") ?: ""
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
         buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
