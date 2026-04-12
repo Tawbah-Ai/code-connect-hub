@@ -12,7 +12,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { api } from './services/api';
 import type {
   Device, Command, ControlMode, LogEntry, PairingCode, AppNotification,
-  FileInfo, AppInfo, DeviceInfo, StorageInfo, CommandResultData, DashTab,
+  FileInfo, AppInfo, DeviceInfo, StorageInfo, DashTab,
 } from './types';
 import type { Session } from '@supabase/supabase-js';
 import './App.css';
