@@ -53,8 +53,17 @@ cd dashboard && npm run build
 - Backend pairing API: `/api/pairing/generate` and `/api/pairing/claim` endpoints with Replit PostgreSQL storage. Dashboard calls them via Vite dev proxy at `/backend-api/*`.
 
 ## Build Output
-- Latest signed APK is exported at `HybridControl-v1.0.0.apk`.
+- Latest signed APK: `HybridControl-v1.1.0.apk` (includes all permission updates, pairing backend support, BACKEND_URL BuildConfig)
 - Android SDK for local builds is configured via `android-agent/local.properties` with `sdk.dir=/home/runner/workspace/.android-sdk`.
+- To rebuild: `cd android-agent && ./gradlew assembleRelease`
+
+## Startup
+Run `./start.sh` to start both the backend (port 3001) and dashboard (port 5000) together.
+
+## Admin Credentials
+- **Email:** admin@hybridcontrol.com
+- **Password:** HybridAdmin@2024
+- Note: For the Supabase-based dashboard, register with these credentials (email confirmation may be required in the Supabase project settings).
 
 ## Supabase Configuration
 Set the following environment variables for the dashboard:
