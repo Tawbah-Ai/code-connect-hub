@@ -1,27 +1,37 @@
 export interface Device {
-  id: string;
-  user_id: string;
-  device_id: string;
-  device_name: string;
+  deviceId: string;
+  userId: string;
+  deviceName: string;
   model: string;
-  os_version: string;
+  osVersion: string;
+  sdkVersion: number;
   manufacturer: string;
   role: 'OWNER' | 'CLIENT';
-  status: 'ONLINE' | 'OFFLINE';
-  last_seen: string;
-  created_at: string;
+  status: 'online' | 'offline';
+  isConnected: boolean;
+  lastHeartbeat: number;
+  registeredAt: string;
 }
 
-export interface Command {
-  id: string;
-  device_id: string;
-  user_id: string;
+export interface AuthResponse {
+  token: string;
+  userId: string;
+  deviceId: string;
+  role: 'OWNER' | 'CLIENT';
+}
+
+export interface CommandPayload {
   type: string;
-  payload: Record<string, unknown>;
-  status: 'PENDING' | 'EXECUTED' | 'FAILED';
-  result: Record<string, unknown> | null;
-  created_at: string;
-  updated_at: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface CommandResult {
+  commandId: string;
+  type: string;
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  fromDeviceId?: string;
 }
 
 export type ControlMode = 'COMMAND' | 'TOUCH' | 'HYBRID';

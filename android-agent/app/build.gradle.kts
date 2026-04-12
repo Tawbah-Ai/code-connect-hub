@@ -14,20 +14,8 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        // Read Supabase credentials from local.properties (gitignored)
-        val supabaseUrl: String = project.findProperty("SUPABASE_URL") as? String ?: ""
-        val supabaseAnonKey: String = project.findProperty("SUPABASE_ANON_KEY") as? String ?: ""
-        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
-    }
-
-    signingConfigs {
-        create("release") {
-            storeFile = file("../hybridcontrol-release.jks")
-            storePassword = "hybridcontrol2024"
-            keyAlias = "hybridcontrol"
-            keyPassword = "hybridcontrol2024"
-        }
+        buildConfigField("String", "WS_URL", "\"ws://10.0.2.2:3000\"")
+        buildConfigField("String", "API_URL", "\"http://10.0.2.2:3000\"")
     }
 
     buildTypes {
@@ -37,7 +25,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -67,7 +54,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-ktx:1.8.2")
 
-    // OkHttp for HTTP requests
+    // OkHttp for WebSocket
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Gson for JSON
