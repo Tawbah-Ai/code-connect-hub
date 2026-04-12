@@ -69,7 +69,18 @@ class ApiService {
       role: string;
     }>('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        device: {
+          deviceId: `dashboard-${Date.now()}`,
+          deviceName: 'Web Dashboard',
+          model: 'Browser',
+          osVersion: 'Web',
+          sdkVersion: 0,
+          manufacturer: 'Web',
+        },
+      }),
     });
 
     this.setToken(result.token);
