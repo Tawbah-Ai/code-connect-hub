@@ -21,6 +21,15 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../hybridcontrol-release.jks")
+            storePassword = "hybridcontrol2024"
+            keyAlias = "hybridcontrol"
+            keyPassword = "hybridcontrol2024"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -28,6 +37,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
