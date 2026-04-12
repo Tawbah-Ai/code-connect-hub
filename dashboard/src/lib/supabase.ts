@@ -4,8 +4,8 @@ import type { Database } from '../types/database';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY environment variables');
-}
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+export const supabase = isSupabaseConfigured
+  ? createClient<Database>(supabaseUrl, supabaseAnonKey)
+  : (null as unknown as ReturnType<typeof createClient<Database>>);

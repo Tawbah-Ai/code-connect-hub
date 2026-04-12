@@ -21,7 +21,7 @@ import {
   Tv,
   X,
 } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { api } from './services/api';
 import type { Device, Command, ControlMode, LogEntry } from './types';
 import type { Session } from '@supabase/supabase-js';
@@ -602,18 +602,48 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   );
 }
 
-function App() {
+function ConfigurationRequired() {
+  return (
+    <div className="login-page">
+      <div className="app-bg">
+        <div className="app-bg-orb app-bg-orb-1" />
+        <div className="app-bg-orb app-bg-orb-2" />
+      </div>
+      <div className="login-card">
+        <div className="login-header">
+          <div className="login-logo">
+            <Shield size={32} color="#000" />
+          </div>
+          <div className="login-title">HYBRID CONTROL</div>
+          <div className="login-sub">Configuration Required</div>
+        </div>
+        <div className="error-msg" style={{ textAlign: 'left', lineHeight: 1.6 }}>
+          <strong>Supabase credentials are not set.</strong>
+          <br /><br />
+          Please add the following environment variables to run this app:
+          <br /><br />
+          <code style={{ display: 'block', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: 6, fontSize: 12, wordBreak: 'break-all' }}>
+            VITE_SUPABASE_URL<br />
+            VITE_SUPABASE_ANON_KEY
+          </code>
+          <br />
+          You can find these values in your Supabase project settings under <strong>API</strong>.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setLoading(false);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
     });
@@ -640,6 +670,13 @@ function App() {
       supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
     }} />
   );
+}
+
+function App() {
+  if (!isSupabaseConfigured) {
+    return <ConfigurationRequired />;
+  }
+  return <AppContent />;
 }
 
 export default App;
