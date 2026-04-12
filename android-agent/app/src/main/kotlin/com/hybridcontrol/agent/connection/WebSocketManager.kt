@@ -11,39 +11,39 @@ import com.hybridcontrol.agent.model.*
 import com.hybridcontrol.agent.touch.TouchEngine
 import kotlinx.coroutines.*
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import java.util.concurrent.TimeUnit
 
 /**
- * Polls the Supabase commands table for PENDING commands and executes them.
- * Updates device status via Supabase REST API.
- * Automatically refreshes the Supabase JWT token when it is close to expiry.
+ * Manages a persistent WebSocket connection to the Hybrid Control backend.
+ * Receives commands as JSON, executes them via CommandEngine / TouchEngine,
+ * and returns results over the same WebSocket.
+ * Also relays raw binary JPEG frames from ScreenStreamService.
  */
 class WebSocketManager(
     private val context: Context,
     private val commandEngine: CommandEngine,
     private val touchEngine: TouchEngine
 ) {
-
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)   // no read timeout for WS
+        .pingInterval(20, TimeUnit.SECONDS) // OkHttp-level ping
         .build()
 
+    private var ws: WebSocket? = null
     private var isConnected = false
     private var shouldReconnect = true
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var heartbeatJob: Job? = null
-    private var commandPollJob: Job? = null
     private var reconnectJob: Job? = null
+    private var heartbeatJob: Job? = null
     private var controlMode = ControlMode.HYBRID
     private val processingCommandIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-    private var consecutivePollFailures = 0
-    private var consecutiveHeartbeatFailures = 0
 
-    private val connectionListeners = java.util.concurrent.CopyOnWriteArrayList<ConnectionListener>()
+    private val connectionListeners =
+        java.util.concurrent.CopyOnWriteArrayList<ConnectionListener>()
 
     interface ConnectionListener {
         fun onConnected()
@@ -53,330 +53,245 @@ class WebSocketManager(
         fun onError(error: String)
     }
 
-    fun addConnectionListener(listener: ConnectionListener) = connectionListeners.add(listener)
-    fun removeConnectionListener(listener: ConnectionListener) = connectionListeners.remove(listener)
+    fun addConnectionListener(l: ConnectionListener) = connectionListeners.add(l)
+    fun removeConnectionListener(l: ConnectionListener) = connectionListeners.remove(l)
+
+    // ─── Public API ───────────────────────────────────────────────────────────
 
     fun connect(token: String) {
         shouldReconnect = true
-        scope.launch {
-            try {
-                val authManager = HybridControlApp.instance.authManager
-
-                // Ensure device UUID is available before starting
-                authManager.ensureDeviceUuid(token)
-
-                val validToken = authManager.getValidToken() ?: token
-                updateDeviceStatus("ONLINE", validToken)
-                isConnected = true
-                connectionListeners.forEach { it.onConnected() }
-                startCommandPolling()
-                startHeartbeat()
-                Log.d(TAG, "Connected to Supabase. DeviceUUID=${authManager.getDeviceUuid()}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Connection failed: ${e.message}")
-                connectionListeners.forEach { it.onError(e.message ?: "Connection failed") }
-                handleDisconnect()
-            }
-        }
+        openWebSocket(token)
     }
-
-    private suspend fun getAuthHeader(): String {
-        val authManager = HybridControlApp.instance.authManager
-        val token = authManager.getValidToken()
-            ?: authManager.getAccessToken()
-            ?: throw IllegalStateException("No access token available")
-        return "Bearer $token"
-    }
-
-    private fun updateDeviceStatus(status: String, token: String) {
-        val authManager = HybridControlApp.instance.authManager
-        val deviceId = authManager.getDeviceId()
-        val userId = authManager.getUserId() ?: return
-
-        val updateData = gson.toJson(mapOf(
-            "status" to status,
-            "last_seen" to java.time.Instant.now().toString()
-        ))
-
-        val request = Request.Builder()
-            .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?device_id=eq.$deviceId&user_id=eq.$userId")
-            .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-            .addHeader("Authorization", "Bearer $token")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Prefer", "return=minimal")
-            .patch(updateData.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        client.newCall(request).execute().use { }
-    }
-
-    private fun startCommandPolling() {
-        commandPollJob?.cancel()
-        commandPollJob = scope.launch {
-            val authManager = HybridControlApp.instance.authManager
-
-            while (isActive && isConnected) {
-                try {
-                    val deviceUuid = authManager.getDeviceUuid()
-                    if (deviceUuid == null) {
-                        // Try to recover UUID before giving up
-                        val tok = authManager.getValidToken() ?: authManager.getAccessToken()
-                        if (tok != null) authManager.ensureDeviceUuid(tok)
-                        if (authManager.getDeviceUuid() == null) {
-                            Log.e(TAG, "Device UUID not available, skipping poll cycle")
-                            delay(5000)
-                            continue
-                        }
-                    }
-
-                    val authHeader = getAuthHeader()
-
-                    val request = Request.Builder()
-                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?device_id=eq.${authManager.getDeviceUuid()}&status=eq.PENDING&order=created_at.asc&limit=10")
-                        .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                        .addHeader("Authorization", authHeader)
-                        .build()
-
-                    val response = client.newCall(request).execute()
-                    val body = response.body?.string()
-
-                    if (response.code == 401) {
-                        // Token expired — force refresh
-                        Log.w(TAG, "401 on poll, forcing token refresh")
-                        val refreshToken = authManager.getRefreshToken()
-                        if (refreshToken != null) {
-                            try {
-                                authManager.refreshAccessToken(refreshToken)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Forced refresh failed: ${e.message}")
-                            }
-                        }
-                        delay(2000)
-                        continue
-                    }
-
-                    if (response.isSuccessful && body != null) {
-                        consecutivePollFailures = 0
-                        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
-                        val commands: List<Map<String, Any>> = gson.fromJson(body, type)
-
-                        for (cmdMap in commands) {
-                            val cmdId = cmdMap["id"] as? String ?: continue
-                            if (cmdId in processingCommandIds) continue
-                            val cmdType = cmdMap["type"] as? String ?: continue
-                            @Suppress("UNCHECKED_CAST")
-                            val payload = cmdMap["payload"] as? Map<String, Any>
-
-                            val command = RemoteCommand(
-                                id = cmdId,
-                                type = cmdType,
-                                payload = payload,
-                                fromDeviceId = cmdMap["user_id"] as? String
-                            )
-
-                            processingCommandIds.add(cmdId)
-                            connectionListeners.forEach { it.onCommandReceived(command) }
-                            executeCommand(command)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Command poll error: ${e.message}")
-                    consecutivePollFailures++
-                    if (consecutivePollFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        Log.e(TAG, "Too many poll failures, reconnecting")
-                        handleDisconnect()
-                        return@launch
-                    }
-                }
-
-                delay(2000)
-            }
-        }
-    }
-
-    private fun executeCommand(command: RemoteCommand) {
-        scope.launch {
-            try {
-                val result = when (controlMode) {
-                    ControlMode.COMMAND -> commandEngine.execute(command)
-                    ControlMode.TOUCH -> touchEngine.execute(command)
-                    ControlMode.HYBRID -> {
-                        if (commandEngine.canHandle(command.type)) commandEngine.execute(command)
-                        else touchEngine.execute(command)
-                    }
-                }
-                connectionListeners.forEach { it.onCommandResult(result) }
-                updateCommandResult(command.id, result)
-            } finally {
-                processingCommandIds.remove(command.id)
-            }
-        }
-    }
-
-    private suspend fun updateCommandResult(commandId: String, result: CommandResult) {
-        try {
-            val authHeader = getAuthHeader()
-            val authManager = HybridControlApp.instance.authManager
-
-            val status = if (result.success) "EXECUTED" else "FAILED"
-            val resultData = gson.toJson(mapOf(
-                "success" to result.success,
-                "data" to result.data,
-                "error" to result.error
-            ))
-
-            val updateData = gson.toJson(mapOf(
-                "status" to status,
-                "result" to gson.fromJson(resultData, Map::class.java)
-            ))
-
-            val request = Request.Builder()
-                .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?id=eq.$commandId")
-                .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Authorization", authHeader)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "return=minimal")
-                .patch(updateData.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { }
-
-            // Log to logs table
-            val deviceUuid = authManager.getDeviceUuid() ?: return
-            val logData = gson.toJson(mapOf(
-                "device_id" to deviceUuid,
-                "user_id" to authManager.getUserId(),
-                "message" to "Command ${result.type}: ${if (result.success) "SUCCESS" else "FAILED"}",
-                "level" to if (result.success) "INFO" else "ERROR"
-            ))
-
-            val logRequest = Request.Builder()
-                .url("${BuildConfig.SUPABASE_URL}/rest/v1/logs")
-                .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Authorization", authHeader)
-                .addHeader("Content-Type", "application/json")
-                .post(logData.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(logRequest).execute().use { }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to update command result: ${e.message}")
-        }
-    }
-
-    private fun startHeartbeat() {
-        heartbeatJob?.cancel()
-        heartbeatJob = scope.launch {
-            while (isActive && isConnected) {
-                try {
-                    val authHeader = getAuthHeader()
-                    val authManager = HybridControlApp.instance.authManager
-                    val deviceId = authManager.getDeviceId()
-                    val userId = authManager.getUserId() ?: continue
-
-                    val updateData = gson.toJson(mapOf(
-                        "status" to "ONLINE",
-                        "last_seen" to java.time.Instant.now().toString()
-                    ))
-                    val request = Request.Builder()
-                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?device_id=eq.$deviceId&user_id=eq.$userId")
-                        .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                        .addHeader("Authorization", authHeader)
-                        .addHeader("Content-Type", "application/json")
-                        .addHeader("Prefer", "return=minimal")
-                        .patch(updateData.toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    client.newCall(request).execute().use { }
-                    consecutiveHeartbeatFailures = 0
-                } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat failed: ${e.message}")
-                    consecutiveHeartbeatFailures++
-                    if (consecutiveHeartbeatFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        handleDisconnect()
-                        return@launch
-                    }
-                }
-                delay(15_000)
-            }
-        }
-    }
-
-    private fun handleDisconnect() {
-        isConnected = false
-        heartbeatJob?.cancel()
-        commandPollJob?.cancel()
-        connectionListeners.forEach { it.onDisconnected() }
-
-        if (shouldReconnect && (reconnectJob == null || reconnectJob?.isActive != true)) {
-            scheduleReconnect()
-        }
-    }
-
-    private fun scheduleReconnect() {
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            var retryDelay = INITIAL_RECONNECT_DELAY
-            while (shouldReconnect && !isConnected) {
-                Log.d(TAG, "Reconnecting in ${retryDelay}ms...")
-                delay(retryDelay)
-                val authManager = HybridControlApp.instance.authManager
-                val token = try {
-                    authManager.getValidToken() ?: authManager.getAccessToken()
-                } catch (e: Exception) {
-                    authManager.getAccessToken()
-                }
-
-                if (token != null) {
-                    try {
-                        authManager.ensureDeviceUuid(token)
-                        updateDeviceStatus("ONLINE", token)
-                        isConnected = true
-                        consecutivePollFailures = 0
-                        consecutiveHeartbeatFailures = 0
-                        connectionListeners.forEach { it.onConnected() }
-                        startCommandPolling()
-                        startHeartbeat()
-                        Log.d(TAG, "Reconnected to Supabase")
-                        return@launch
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Reconnect failed: ${e.message}")
-                        isConnected = false
-                    }
-                }
-                retryDelay = (retryDelay * 2).coerceAtMost(MAX_RECONNECT_DELAY)
-            }
-        }
-    }
-
-    fun setControlMode(mode: ControlMode) { controlMode = mode }
 
     fun disconnect() {
         shouldReconnect = false
         reconnectJob?.cancel()
         heartbeatJob?.cancel()
-        commandPollJob?.cancel()
-
-        scope.launch {
-            val token = try {
-                HybridControlApp.instance.authManager.getValidToken()
-                    ?: HybridControlApp.instance.authManager.getAccessToken()
-            } catch (e: Exception) {
-                HybridControlApp.instance.authManager.getAccessToken()
-            }
-            if (token != null) {
-                try { updateDeviceStatus("OFFLINE", token) } catch (e: Exception) { }
-            }
-        }
+        ws?.close(1000, "User logout")
+        ws = null
         isConnected = false
     }
 
     fun isConnected(): Boolean = isConnected
 
+    fun setControlMode(mode: ControlMode) { controlMode = mode }
+
+    /** Send a raw JPEG frame to the dashboard (called from ScreenStreamService). */
+    fun sendBinaryFrame(jpegBytes: ByteArray) {
+        val socket = ws ?: return
+        if (!isConnected) return
+        try {
+            socket.send(jpegBytes.toByteString())
+        } catch (e: Exception) {
+            Log.w(TAG, "sendBinaryFrame error: ${e.message}")
+        }
+    }
+
+    // ─── WebSocket ────────────────────────────────────────────────────────────
+
+    private fun openWebSocket(token: String) {
+        val backendUrl = BuildConfig.BACKEND_URL.trimEnd('/')
+        val wsUrl = backendUrl
+            .replace("https://", "wss://")
+            .replace("http://", "ws://")
+
+        val request = Request.Builder()
+            .url("$wsUrl/ws?token=${token}")
+            .build()
+
+        Log.d(TAG, "Connecting to $wsUrl/ws")
+
+        ws = client.newWebSocket(request, object : WebSocketListener() {
+
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d(TAG, "WebSocket connected")
+                isConnected = true
+                connectionListeners.forEach { it.onConnected() }
+                startHeartbeat(token)
+
+                // Announce this device to the server
+                sendJson(mapOf(
+                    "type" to "DEVICE_REGISTER",
+                    "payload" to mapOf(
+                        "deviceId" to HybridControlApp.instance.authManager.getDeviceId(),
+                        "role" to (HybridControlApp.instance.authManager.deviceRole?.name ?: "CLIENT")
+                    )
+                ))
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleTextMessage(text)
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                // Binary messages from backend (not expected, ignore)
+                Log.d(TAG, "Received binary message (${bytes.size} bytes), ignoring")
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WS closing: $code $reason")
+                webSocket.close(1000, null)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WS closed: $code $reason")
+                handleDisconnect(token)
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "WS failure: ${t.message}")
+                connectionListeners.forEach { it.onError(t.message ?: "Connection error") }
+                handleDisconnect(token)
+            }
+        })
+    }
+
+    // ─── Message handling ─────────────────────────────────────────────────────
+
+    private fun handleTextMessage(text: String) {
+        try {
+            val type = object : TypeToken<Map<String, Any>>() {}.type
+            val msg: Map<String, Any> = gson.fromJson(text, type)
+            val msgType = msg["type"] as? String ?: return
+
+            @Suppress("UNCHECKED_CAST")
+            val payload = msg["payload"] as? Map<String, Any>
+
+            when (msgType) {
+                "COMMAND" -> {
+                    if (payload == null) return
+                    val cmdId = payload["id"] as? String ?: return
+                    if (cmdId in processingCommandIds) return
+                    val cmdType = payload["type"] as? String ?: return
+                    @Suppress("UNCHECKED_CAST")
+                    val cmdPayload = payload["payload"] as? Map<String, Any>
+                    val fromDevice = payload["fromDeviceId"] as? String
+
+                    val command = RemoteCommand(
+                        id = cmdId,
+                        type = cmdType,
+                        payload = cmdPayload,
+                        fromDeviceId = fromDevice
+                    )
+                    processingCommandIds.add(cmdId)
+                    connectionListeners.forEach { it.onCommandReceived(command) }
+                    scope.launch { executeCommand(command) }
+                }
+
+                "HEARTBEAT_ACK" -> {
+                    Log.v(TAG, "Heartbeat ack received")
+                }
+
+                "REGISTERED" -> {
+                    Log.d(TAG, "Device registration confirmed by server")
+                }
+
+                "ERROR" -> {
+                    val errMsg = payload?.get("message") as? String ?: "Server error"
+                    Log.e(TAG, "Server error: $errMsg")
+                    connectionListeners.forEach { it.onError(errMsg) }
+                }
+
+                else -> Log.v(TAG, "Unknown message type: $msgType")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "handleTextMessage error: ${e.message}")
+        }
+    }
+
+    // ─── Command execution ────────────────────────────────────────────────────
+
+    private suspend fun executeCommand(command: RemoteCommand) {
+        try {
+            val result = when (controlMode) {
+                ControlMode.COMMAND -> commandEngine.execute(command)
+                ControlMode.TOUCH -> touchEngine.execute(command)
+                ControlMode.HYBRID -> {
+                    if (commandEngine.canHandle(command.type)) commandEngine.execute(command)
+                    else touchEngine.execute(command)
+                }
+            }
+            connectionListeners.forEach { it.onCommandResult(result) }
+            sendCommandResult(result)
+        } finally {
+            processingCommandIds.remove(command.id)
+        }
+    }
+
+    private fun sendCommandResult(result: CommandResult) {
+        sendJson(mapOf(
+            "type" to "COMMAND_RESULT",
+            "payload" to mapOf(
+                "commandId" to result.commandId,
+                "type" to result.type,
+                "success" to result.success,
+                "data" to result.data,
+                "error" to result.error,
+                "fromDeviceId" to HybridControlApp.instance.authManager.getDeviceId()
+            )
+        ))
+    }
+
+    // ─── Heartbeat ────────────────────────────────────────────────────────────
+
+    private fun startHeartbeat(token: String) {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch {
+            while (isActive && isConnected) {
+                delay(12_000)
+                sendJson(mapOf(
+                    "type" to "HEARTBEAT",
+                    "payload" to mapOf("timestamp" to System.currentTimeMillis())
+                ))
+            }
+        }
+    }
+
+    // ─── Reconnect ────────────────────────────────────────────────────────────
+
+    private fun handleDisconnect(token: String) {
+        if (isConnected) {
+            isConnected = false
+            heartbeatJob?.cancel()
+            connectionListeners.forEach { it.onDisconnected() }
+        }
+        ws = null
+
+        if (shouldReconnect) scheduleReconnect(token)
+    }
+
+    private fun scheduleReconnect(token: String) {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
+            var delay = INITIAL_RECONNECT_DELAY
+            while (shouldReconnect && !isConnected) {
+                Log.d(TAG, "Reconnecting in ${delay}ms...")
+                delay(delay)
+                if (!shouldReconnect) break
+                val latestToken = try {
+                    HybridControlApp.instance.authManager.getValidToken() ?: token
+                } catch (e: Exception) { token }
+                openWebSocket(latestToken)
+                delay = (delay * 2).coerceAtMost(MAX_RECONNECT_DELAY)
+                delay(2000) // give the socket time to connect before looping
+            }
+        }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private fun sendJson(data: Map<String, Any?>) {
+        val socket = ws ?: return
+        try {
+            socket.send(gson.toJson(data))
+        } catch (e: Exception) {
+            Log.w(TAG, "sendJson error: ${e.message}")
+        }
+    }
+
     companion object {
-        private const val TAG = "SupabaseRealtimeManager"
-        private const val INITIAL_RECONNECT_DELAY = 1000L
-        private const val MAX_RECONNECT_DELAY = 30000L
-        private const val MAX_CONSECUTIVE_FAILURES = 3
+        private const val TAG = "WebSocketManager"
+        private const val INITIAL_RECONNECT_DELAY = 1_000L
+        private const val MAX_RECONNECT_DELAY = 30_000L
     }
 }

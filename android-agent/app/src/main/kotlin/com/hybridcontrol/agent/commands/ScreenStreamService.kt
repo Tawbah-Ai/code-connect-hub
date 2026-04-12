@@ -13,26 +13,18 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.IBinder
-import android.util.Base64
 import android.util.DisplayMetrics
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.google.gson.Gson
-import com.hybridcontrol.agent.BuildConfig
 import com.hybridcontrol.agent.HybridControlApp
 import com.hybridcontrol.agent.R
 import com.hybridcontrol.agent.ui.MainActivity
 import kotlinx.coroutines.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.TimeUnit
 
 /**
  * Persistent foreground service that streams live screen frames to the dashboard
- * via Supabase Realtime Broadcast API at ~10fps.
+ * via the backend WebSocket as raw binary JPEG data at ~10fps.
  */
 class ScreenStreamService : Service() {
 
@@ -41,13 +33,6 @@ class ScreenStreamService : Service() {
     private var imageReader: ImageReader? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var streamJob: Job? = null
-    private val gson = Gson()
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .callTimeout(10, TimeUnit.SECONDS)
-        .build()
 
     override fun onCreate() {
         super.onCreate()
@@ -59,13 +44,11 @@ class ScreenStreamService : Service() {
             ACTION_START -> {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, -1)
                 val projectionData: Intent? = intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
-                val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: ""
-                val token = intent.getStringExtra(EXTRA_TOKEN) ?: ""
 
                 if (projectionData != null && resultCode != -1) {
                     startForeground(NOTIFICATION_ID, createNotification())
                     initProjection(resultCode, projectionData)
-                    startStreaming(deviceId, token)
+                    startStreaming()
                 } else {
                     Log.e(TAG, "Missing projection data, stopping service")
                     stopSelf()
@@ -80,22 +63,20 @@ class ScreenStreamService : Service() {
     }
 
     private fun initProjection(resultCode: Int, data: Intent) {
-        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val projectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
         val metrics: DisplayMetrics = resources.displayMetrics
-
-        // Scale down to max 720 width for bandwidth efficiency
         val scale = minOf(1.0f, MAX_WIDTH.toFloat() / metrics.widthPixels)
         val captureWidth = (metrics.widthPixels * scale).toInt()
         val captureHeight = (metrics.heightPixels * scale).toInt()
-        val density = metrics.densityDpi
 
         imageReader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 3)
 
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "ScreenStream",
-            captureWidth, captureHeight, density,
+            captureWidth, captureHeight, metrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader!!.surface, null, null
         )
@@ -103,12 +84,12 @@ class ScreenStreamService : Service() {
         Log.d(TAG, "VirtualDisplay created: ${captureWidth}x${captureHeight}")
     }
 
-    private fun startStreaming(deviceId: String, token: String) {
+    private fun startStreaming() {
         streamJob?.cancel()
         streamJob = scope.launch {
-            // Give the VirtualDisplay time to warm up
-            delay(300)
-            Log.d(TAG, "Starting frame broadcast loop for device: $deviceId")
+            delay(300) // let VirtualDisplay warm up
+            Log.d(TAG, "Starting frame broadcast loop")
+            ScreenCaptureManager.isStreaming = true
 
             while (isActive) {
                 val frameStart = System.currentTimeMillis()
@@ -131,20 +112,19 @@ class ScreenStreamService : Service() {
                         bitmap.copyPixelsFromBuffer(buffer)
                         image.close()
 
-                        val cropped = if (rowPadding > 0) {
+                        val cropped = if (rowPadding > 0)
                             Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                        } else {
-                            bitmap
-                        }
+                        else bitmap
 
                         val stream = ByteArrayOutputStream()
                         cropped.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)
-                        val base64Frame = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                        val jpegBytes = stream.toByteArray()
 
                         if (cropped !== bitmap) cropped.recycle()
                         bitmap.recycle()
 
-                        broadcastFrame(deviceId, token, base64Frame)
+                        // Send raw JPEG bytes over the WebSocket — backend relays to dashboard
+                        HybridControlApp.instance.webSocketManager.sendBinaryFrame(jpegBytes)
                     }
                 } catch (e: CancellationException) {
                     break
@@ -152,43 +132,11 @@ class ScreenStreamService : Service() {
                     Log.w(TAG, "Frame error: ${e.message}")
                 }
 
-                // Target ~10fps: sleep remaining time in 100ms budget
                 val elapsed = System.currentTimeMillis() - frameStart
-                val sleep = (FRAME_INTERVAL_MS - elapsed).coerceAtLeast(10)
-                delay(sleep)
+                delay((FRAME_INTERVAL_MS - elapsed).coerceAtLeast(10))
             }
 
             Log.d(TAG, "Frame broadcast loop ended")
-        }
-    }
-
-    private fun broadcastFrame(deviceId: String, token: String, base64Frame: String) {
-        try {
-            val body = gson.toJson(mapOf(
-                "messages" to listOf(
-                    mapOf(
-                        "topic" to "realtime:screen-$deviceId",
-                        "event" to "screen-frame",
-                        "payload" to mapOf("frame" to base64Frame)
-                    )
-                )
-            ))
-
-            val request = Request.Builder()
-                .url("${BuildConfig.SUPABASE_URL}/realtime/v1/api/broadcast")
-                .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $token")
-                .addHeader("Content-Type", "application/json")
-                .post(body.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Broadcast failed: ${response.code} ${response.body?.string()}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Broadcast error: ${e.message}")
         }
     }
 
@@ -212,7 +160,6 @@ class ScreenStreamService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Stop action
         val stopIntent = Intent(this, ScreenStreamService::class.java).apply {
             action = ACTION_STOP
         }
@@ -226,7 +173,11 @@ class ScreenStreamService : Service() {
             .setContentText("Live screen is being shared with the dashboard")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Stream", stopPendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop Stream",
+                stopPendingIntent
+            )
             .setOngoing(true)
             .setSilent(true)
             .build()
@@ -247,11 +198,9 @@ class ScreenStreamService : Service() {
         const val ACTION_STOP = "com.hybridcontrol.agent.STREAM_STOP"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_PROJECTION_DATA = "projection_data"
-        const val EXTRA_DEVICE_ID = "device_id"
-        const val EXTRA_TOKEN = "token"
         private const val NOTIFICATION_ID = 1002
-        private const val FRAME_INTERVAL_MS = 100L  // 10fps
-        private const val JPEG_QUALITY = 55          // balance quality vs size
-        private const val MAX_WIDTH = 720            // max capture width in pixels
+        private const val FRAME_INTERVAL_MS = 100L  // ~10 fps
+        private const val JPEG_QUALITY = 55
+        private const val MAX_WIDTH = 720
     }
 }

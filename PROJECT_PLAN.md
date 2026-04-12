@@ -25,6 +25,21 @@
 - [x] Backend runs on port 3001 with `ts-node-dev`
 - [x] Dashboard runs on port 5000 with Vite (proxy to backend configured)
 - [x] Both workflows configured and running in `.replit`
+- [x] **Android `AuthManager.kt` rewritten** — calls `/api/auth/login`, `/api/auth/register`, `/api/pairing/claim` on the backend; no Supabase
+- [x] **Android `WebSocketManager.kt` rewritten** — real OkHttp WebSocket to `/ws?token=...`; receives commands as JSON, sends results and heartbeat back; replaced Supabase REST polling
+- [x] **Android `ScreenStreamService.kt` rewritten** — sends raw JPEG bytes via the WebSocket instead of Supabase Realtime broadcast
+- [x] **`build.gradle.kts` cleaned** — `SUPABASE_URL` and `SUPABASE_ANON_KEY` fields removed; only `BACKEND_URL` remains
+- [x] `local.properties.example` updated with `BACKEND_URL` setup instructions
+- [x] Verified: zero Supabase references in backend, dashboard, and Android source
+
+## Unified Data Flow
+
+```
+Dashboard  ──REST /api/*──►  Backend (Node.js :3001)  ◄──► Replit PostgreSQL
+Dashboard  ──WS  /ws────►   Backend
+Android    ──REST /api/*──►  Backend
+Android    ──WS  /ws────►   Backend (commands, results, binary screen frames)
+```
 
 ---
 

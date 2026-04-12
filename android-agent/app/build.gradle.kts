@@ -21,11 +21,7 @@ android {
         versionCode = 3
         versionName = "1.2.0"
 
-        val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: ""
-        val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: ""
         val backendUrl: String = localProperties.getProperty("BACKEND_URL") ?: ""
-        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
         buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
     }
 
