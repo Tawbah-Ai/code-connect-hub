@@ -61,3 +61,8 @@ externalPort = 3001
 deploymentTarget = "autoscale"
 build = ["sh", "-c", "cd dashboard && npm install && npm run build"]
 run = ["sh", "-c", "cd backend && npm install && npm run build && node dist/server.js"]
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhdmd0ZmFvYm96bmZzeWNtd3F5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTk3MTUwMywiZXhwIjoyMDkxNTQ3NTAzfQ.YHzz8kwbGtl1Q-llIQjSsaC3E-Bk3Qddb_XChkpNciM"
