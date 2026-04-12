@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hybrid Control Client</string>
-    <string name="accessibility_description">Hybrid Control Client lets an authorized dashboard send visible touch gestures only after you sign in, pair this device, enable accessibility, and start the foreground agent.</string>
-    <string name="notification_channel_name">Hybrid Control Client</string>
-    <string name="notification_channel_description">Shows when authorized remote device control is active</string>
+    <string name="app_name">DeviceSync Manager</string>
+    <string name="app_description">DeviceSync Manager allows authorized users to remotely monitor and manage their own Android devices from a secure web dashboard. All features require explicit user consent and visible notifications are displayed whenever remote control is active.</string>
+    <string name="accessibility_service_label">DeviceSync Touch Automation</string>
+    <string name="accessibility_description">DeviceSync Manager uses Accessibility Services to perform touch-based UI automation only when the user has signed in, paired the device, and explicitly started the remote control session. A persistent notification is always visible during active sessions.</string>
+    <string name="notification_channel_name">DeviceSync Manager</string>
+    <string name="notification_channel_description">Displays a persistent notification while authorized remote monitoring is active on your device</string>
+    <string name="foreground_notification_title">DeviceSync Manager is active</string>
+    <string name="foreground_notification_text">Remote monitoring is running. Tap to manage.</string>
+    <string name="consent_title">Enable Remote Monitoring</string>
+    <string name="consent_message">This will allow the authorized dashboard to:\n\n• View device information and battery status\n• Take screenshots on demand\n• Stream the screen (with your permission)\n• Send touch gestures to this device\n\nA persistent notification will always be visible while this is active. Only proceed if this is your own device or you have explicit permission from the device owner.</string>
+    <string name="permission_rationale_title">Permissions Required</string>
+    <string name="permission_rationale_message">DeviceSync Manager needs the following permissions:\n\n• Storage/Media: To access and transfer files remotely\n• Notifications: To keep the sync service running in the background\n\nThese are only used when remote monitoring is actively enabled by you.</string>
 </resources>
