@@ -118,7 +118,12 @@ class SupabaseService {
       .select()
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === '42P01' || error.message.toLowerCase().includes('not found')) {
+        throw new Error('Pairing database migration is not installed yet. Run supabase/migrations/002_device_pairing_codes.sql in Supabase SQL Editor, then try again.');
+      }
+      throw new Error(error.message);
+    }
     return data as PairingCode;
   }
 

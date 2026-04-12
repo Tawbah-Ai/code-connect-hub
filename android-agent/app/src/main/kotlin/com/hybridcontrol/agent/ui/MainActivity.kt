@@ -70,7 +70,7 @@ class MainActivity : AppCompatActivity() {
             if (isAgentRunning) {
                 stopAgentService()
             } else {
-                requestNotificationPermissionAndStart()
+                confirmRemoteControlConsent()
             }
         }
 
@@ -205,6 +205,15 @@ class MainActivity : AppCompatActivity() {
         } else {
             startAgentService()
         }
+    }
+
+    private fun confirmRemoteControlConsent() {
+        AlertDialog.Builder(this)
+            .setTitle("Start remote control client?")
+            .setMessage("Only continue if this is your device or you have explicit permission. While active, the dashboard can request device information, screenshots, screen streaming, and touch gestures. A persistent notification will stay visible.")
+            .setPositiveButton("Start") { _, _ -> requestNotificationPermissionAndStart() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun startAgentService() {

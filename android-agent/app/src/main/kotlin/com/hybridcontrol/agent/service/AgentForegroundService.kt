@@ -42,7 +42,7 @@ class AgentForegroundService : Service() {
             serviceListener = object : WebSocketManager.ConnectionListener {
                 override fun onConnected() {
                     Log.d(TAG, "Connected to server")
-                    updateNotification("Connected - Monitoring")
+                    updateNotification("Connected - remote control is active")
                 }
 
                 override fun onDisconnected() {
@@ -86,7 +86,7 @@ class AgentForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, HybridControlApp.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Hybrid Control Agent")
+            .setContentTitle("Hybrid Control Client is active")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
             .setContentIntent(pendingIntent)

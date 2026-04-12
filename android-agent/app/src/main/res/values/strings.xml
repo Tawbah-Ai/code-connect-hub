@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hybrid Control</string>
-    <string name="accessibility_description">Enables touch-based remote control for the Hybrid Control system. This service allows remote tap, swipe, and text input commands.</string>
-    <string name="notification_channel_name">Agent Service</string>
-    <string name="notification_channel_description">Keeps the remote control agent running in the background</string>
+    <string name="app_name">Hybrid Control Client</string>
+    <string name="accessibility_description">Hybrid Control Client lets an authorized dashboard send visible touch gestures only after you sign in, pair this device, enable accessibility, and start the foreground agent.</string>
+    <string name="notification_channel_name">Hybrid Control Client</string>
+    <string name="notification_channel_description">Shows when authorized remote device control is active</string>
 </resources>

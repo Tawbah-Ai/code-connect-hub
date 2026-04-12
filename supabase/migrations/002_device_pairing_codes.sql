@@ -19,28 +19,34 @@ CREATE INDEX IF NOT EXISTS idx_device_pairing_codes_active ON device_pairing_cod
 
 ALTER TABLE device_pairing_codes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Owners can create pairing codes" ON device_pairing_codes;
 CREATE POLICY "Owners can create pairing codes"
   ON device_pairing_codes FOR INSERT
   WITH CHECK (auth.uid() = owner_user_id);
 
+DROP POLICY IF EXISTS "Owners can view pairing codes" ON device_pairing_codes;
 CREATE POLICY "Owners can view pairing codes"
   ON device_pairing_codes FOR SELECT
   USING (auth.uid() = owner_user_id);
 
+DROP POLICY IF EXISTS "Owners can update pairing codes" ON device_pairing_codes;
 CREATE POLICY "Owners can update pairing codes"
   ON device_pairing_codes FOR UPDATE
   USING (auth.uid() = owner_user_id)
   WITH CHECK (auth.uid() = owner_user_id);
 
+DROP POLICY IF EXISTS "Linked clients can view assigned device" ON devices;
 CREATE POLICY "Linked clients can view assigned device"
   ON devices FOR SELECT
   USING (auth.uid() = linked_user_id);
 
+DROP POLICY IF EXISTS "Linked clients can update assigned device" ON devices;
 CREATE POLICY "Linked clients can update assigned device"
   ON devices FOR UPDATE
   USING (auth.uid() = linked_user_id)
   WITH CHECK (auth.uid() = linked_user_id);
 
+DROP POLICY IF EXISTS "Linked clients can view commands for assigned device" ON commands;
 CREATE POLICY "Linked clients can view commands for assigned device"
   ON commands FOR SELECT
   USING (
@@ -51,6 +57,7 @@ CREATE POLICY "Linked clients can view commands for assigned device"
     )
   );
 
+DROP POLICY IF EXISTS "Linked clients can update commands for assigned device" ON commands;
 CREATE POLICY "Linked clients can update commands for assigned device"
   ON commands FOR UPDATE
   USING (
@@ -68,6 +75,7 @@ CREATE POLICY "Linked clients can update commands for assigned device"
     )
   );
 
+DROP POLICY IF EXISTS "Owners can view linked client logs" ON logs;
 CREATE POLICY "Owners can view linked client logs"
   ON logs FOR SELECT
   USING (
@@ -78,6 +86,7 @@ CREATE POLICY "Owners can view linked client logs"
     )
   );
 
+DROP POLICY IF EXISTS "Linked clients can insert owner logs" ON logs;
 CREATE POLICY "Linked clients can insert owner logs"
   ON logs FOR INSERT
   WITH CHECK (
