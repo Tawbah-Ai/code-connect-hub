@@ -237,13 +237,8 @@ class AuthManager(private val context: Context) {
 
         val deviceInfo = DeviceUtils.getDeviceInfo(context)
 
-        // Try the backend API first, fall back to Supabase RPC
-        val backendUrl = BuildConfig.BACKEND_URL
-        if (backendUrl.isNotBlank()) {
-            claimViaBackend(pairingCode, deviceInfo)
-        } else {
-            claimViaSupabase(accessToken, pairingCode, deviceInfo)
-        }
+        // Always use Supabase RPC — it is persistent and properly registers the device
+        claimViaSupabase(accessToken, pairingCode, deviceInfo)
     }
 
     private suspend fun claimViaBackend(pairingCode: String, deviceInfo: com.hybridcontrol.agent.model.DeviceInfo) {

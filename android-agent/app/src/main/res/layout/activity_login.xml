@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_dark"
@@ -10,94 +11,123 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="28dp">
+        android:paddingStart="28dp"
+        android:paddingEnd="28dp"
+        android:paddingTop="60dp"
+        android:paddingBottom="40dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="6dp"
             android:text="HYBRID CONTROL"
             android:textColor="@color/accent_cyan"
             android:textSize="30sp"
+            android:letterSpacing="0.08"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="36dp"
-            android:text="Login"
+            android:layout_marginBottom="40dp"
+            android:text="Sign In"
             android:textColor="@color/text_secondary"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
         <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             android:hint="Email"
-            android:textColorHint="@color/text_secondary">
+            app:hintTextColor="@color/accent_cyan"
+            app:boxStrokeColor="@color/accent_cyan"
+            app:boxBackgroundColor="@color/bg_card"
+            app:boxStrokeWidth="1.5dp"
+            app:boxCornerRadiusTopStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusBottomEnd="14dp">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etEmail"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:backgroundTint="@color/accent_cyan"
                 android:inputType="textEmailAddress"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             android:hint="Password"
-            android:textColorHint="@color/text_secondary"
+            app:hintTextColor="@color/accent_cyan"
+            app:boxStrokeColor="@color/accent_cyan"
+            app:boxBackgroundColor="@color/bg_card"
+            app:boxStrokeWidth="1.5dp"
+            app:boxCornerRadiusTopStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusBottomEnd="14dp"
             app:passwordToggleEnabled="true"
-            xmlns:app="http://schemas.android.com/apk/res-auto">
+            app:passwordToggleTint="@color/accent_cyan">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etPassword"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:backgroundTint="@color/accent_cyan"
                 android:inputType="textPassword"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:hint="Pairing code (optional)"
-            android:textColorHint="@color/text_secondary">
+            android:layout_marginBottom="28dp"
+            android:hint="Pairing code (optional, 6 digits)"
+            app:hintTextColor="@color/accent_cyan"
+            app:boxStrokeColor="@color/accent_cyan"
+            app:boxBackgroundColor="@color/bg_card"
+            app:boxStrokeWidth="1.5dp"
+            app:boxCornerRadiusTopStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusBottomEnd="14dp">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etPairingCode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:backgroundTint="@color/accent_cyan"
                 android:inputType="number"
                 android:maxLength="6"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary"
+                android:letterSpacing="0.3" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnLogin"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Login"
+            android:layout_height="54dp"
+            android:text="Sign In"
             android:textAllCaps="false"
             android:textSize="16sp"
-            app:cornerRadius="18dp"
-            android:backgroundTint="@color/accent_cyan"
+            android:textStyle="bold"
             android:textColor="@color/bg_dark"
-            xmlns:app="http://schemas.android.com/apk/res-auto" />
+            app:cornerRadius="16dp"
+            android:backgroundTint="@color/accent_cyan" />
 
         <ProgressBar
             android:id="@+id/progressBar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="20dp"
             android:indeterminateTint="@color/accent_cyan"
             android:visibility="gone" />
 
@@ -105,8 +135,8 @@
             android:id="@+id/tvToggleMode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:padding="8dp"
+            android:layout_marginTop="28dp"
+            android:padding="10dp"
             android:text="Don't have an account? Register"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp" />
