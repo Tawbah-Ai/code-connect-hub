@@ -1,0 +1,29 @@
+I need to restart the workflow after my changes are done. Let me also update the dashboard App.tsx to add START_STREAM and STOP_STREAM buttons in the UI, and then rebuild the APK.
+
+Let me now update local.properties, update the dashboard, and rebuild the APK.
+
+
+Edited android-agent/local.properties
+
+Planning stream start/stop commands (9 seconds)
+The workflow finished (probably because of my changes). Let me now update the dashboard to add START_STREAM and STOP_STREAM buttons in the command panel, and then rebuild the APK. I need to add these buttons to the ScreenViewer section of App.tsx.Let me look at what the current App.tsx shows for the command section (I already read it earlier). I need to:
+
+Update the ScreenViewer component to show a "Start Stream" button in the command section
+Add a "Stop Stream" button when streaming is active
+Actually, the current App.tsx already has a "View Live Screen" button that shows the ScreenViewer. The ScreenViewer subscribes to the screen-frame broadcast and displays frames.
+
+The issue is that opening the ScreenViewer doesn't automatically trigger streaming on the Android device—I need to send a START_STREAM command when the viewer opens and a STOP_STREAM command when it closes. I also need to verify the topic format the Android is broadcasting on, which appears to be "realtime:screen-$deviceId".
+
+Now I'm updating App.tsx to automatically send these commands when the viewer is opened and closed.
+
+الآن سأُحدّث واجهة Dashboard لإرسال أوامر START_STREAM/STOP_STREAM تلقائياً مع عرض الشاشة الحية، وأُعيد بناء APK:
+
+
+Show less
+
+Edited dashboard/src/App.tsx
+
+Planning component updates and rebuild
+The workflow has stopped. Now I need to update the ScreenViewer usage in the Dashboard component to pass the onSendCommand prop, restart the workflow, and rebuild the APK.Let me first update the Dashboard component to pass sendCommand to ScreenViewer, then rebuild the APK. Both can be done in parallel.
+
+الآن سأُحدّث مكان استخدام ScreenViewer في الـ Dashboard لتمرير دالة الإرسال:
