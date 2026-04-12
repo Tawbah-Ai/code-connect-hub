@@ -109,9 +109,10 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function ScreenViewer({ device, onClose }: { device: Device; onClose: () => void }) {
+function ScreenViewer({ device, onClose, onSendCommand }: { device: Device; onClose: () => void; onSendCommand: (type: string, payload?: Record<string, unknown>) => void }) {
   const [frame, setFrame] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [streamStarted, setStreamStarted] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
@@ -120,10 +121,16 @@ function ScreenViewer({ device, onClose }: { device: Device; onClose: () => void
       setConnected(true);
     });
 
+    // Auto-start the stream on the Android device
+    onSendCommand('START_STREAM');
+    setStreamStarted(true);
+
     return () => {
       api.unsubscribeFromScreenStream();
+      // Auto-stop the stream when viewer closes
+      onSendCommand('STOP_STREAM');
     };
-  }, [device.id]);
+  }, [device.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="screen-viewer-overlay">
@@ -596,6 +603,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
         <ScreenViewer
           device={selectedDevice}
           onClose={() => setShowScreenViewer(false)}
+          onSendCommand={(type, payload = {}) => sendCommand(type, payload)}
         />
       )}
     </div>
