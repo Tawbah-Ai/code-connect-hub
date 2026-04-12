@@ -58,6 +58,7 @@ localPort = 5001
 externalPort = 3001
 
 [deployment]
-deploymentTarget = "static"
-build = ["npm", "--prefix", "dashboard", "run", "build"]
+deploymentTarget = "autoscale"
+build = ["sh", "-c", "cd dashboard && npm install && npm run build"]
 publicDir = "dashboard/dist"
+run = ["sh", "-c", "cd backend && npm install && npm run build && node dist/server.js"]

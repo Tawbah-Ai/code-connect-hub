@@ -4,6 +4,8 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import path from 'path';
+import fs from 'fs';
 import authRoutes from './routes/authRoutes';
 import deviceRoutes from './routes/deviceRoutes';
 import pairingRoutes from './routes/pairingRoutes';
@@ -25,10 +27,13 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// API Routes
+// API Routes (both prefixes: direct and via dashboard proxy path)
 app.use('/api/auth', authRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/pairing', pairingRoutes);
+app.use('/backend-api/api/auth', authRoutes);
+app.use('/backend-api/api/devices', deviceRoutes);
+app.use('/backend-api/api/pairing', pairingRoutes);
 
 // API docs
 app.get('/api', (_req, res) => {
@@ -52,6 +57,16 @@ app.get('/api', (_req, res) => {
     },
   });
 });
+
+// Serve dashboard static files in production
+const dashboardDist = path.resolve(__dirname, '../../dashboard/dist');
+if (fs.existsSync(dashboardDist)) {
+  app.use(express.static(dashboardDist));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(dashboardDist, 'index.html'));
+  });
+  console.log(`[Server] Serving dashboard from ${dashboardDist}`);
+}
 
 // Create HTTP server and attach WebSocket
 const server = http.createServer(app);
