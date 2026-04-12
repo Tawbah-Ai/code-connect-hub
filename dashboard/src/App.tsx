@@ -23,10 +23,12 @@ import {
   Cpu,
   Clock3,
   Radio,
+  KeyRound,
+  Copy,
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { api } from './services/api';
-import type { Device, Command, ControlMode, LogEntry } from './types';
+import type { Device, Command, ControlMode, LogEntry, PairingCode } from './types';
 import type { Session } from '@supabase/supabase-js';
 import './App.css';
 
@@ -204,6 +206,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [filePath, setFilePath] = useState('');
   const [packageName, setPackageName] = useState('');
   const [showScreenViewer, setShowScreenViewer] = useState(false);
+  const [pairingCode, setPairingCode] = useState<PairingCode | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   const userEmail = session.user.email || 'User';
   const userId = session.user.id;
@@ -293,6 +297,25 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const handleLogout = async () => {
     await api.logout();
     onLogout();
+  };
+
+  const generatePairingCode = async () => {
+    setPairingLoading(true);
+    try {
+      const code = await api.createPairingCode();
+      setPairingCode(code);
+      addLog('info', `Pairing code ${code.code} created. It expires in 15 minutes.`);
+    } catch (err) {
+      addLog('error', `Pairing code failed: ${err instanceof Error ? err.message : 'Unknown'}`);
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const copyPairingCode = async () => {
+    if (!pairingCode) return;
+    await navigator.clipboard.writeText(pairingCode.code);
+    addLog('info', 'Pairing code copied to clipboard');
   };
 
   const isDeviceOnline = selectedDevice?.status === 'ONLINE';
@@ -617,6 +640,40 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="glass-card">
+            <div className="card-header">
+              <span className="card-title">Device Pairing</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                6-digit owner code
+              </span>
+            </div>
+            <div className="pairing-panel">
+              <div className="pairing-icon">
+                <KeyRound size={24} />
+              </div>
+              <div className="pairing-copy">
+                <h3>Pair an Android client without sharing your login</h3>
+                <p>Generate a code, then enter it in the Android agent during login or registration.</p>
+              </div>
+              {pairingCode && (
+                <div className="pairing-code-row">
+                  <div>
+                    <span>Pairing code</span>
+                    <strong>{pairingCode.code}</strong>
+                    <small>Expires {new Date(pairingCode.expires_at).toLocaleTimeString()}</small>
+                  </div>
+                  <button className="btn-primary" onClick={copyPairingCode}>
+                    <Copy size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    Copy
+                  </button>
+                </div>
+              )}
+              <button className="btn-primary pairing-generate" onClick={generatePairingCode} disabled={pairingLoading}>
+                {pairingLoading ? 'Generating...' : pairingCode ? 'Generate New Code' : 'Generate Pairing Code'}
+              </button>
+            </div>
           </div>
 
           {/* Activity Log */}

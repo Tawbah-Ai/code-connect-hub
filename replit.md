@@ -40,6 +40,7 @@ cd dashboard && npm run build
 - Realtime sync via Supabase Realtime
 - Live screen streaming: Dashboard sends START_STREAM/STOP_STREAM commands and subscribes to Supabase Broadcast frames.
 - 2025 UI refresh: Dashboard now includes operational stats cards, modern glass surfaces, clearer live-stream controls, and Android agent uses updated dark/cyan Material styling.
+- Device pairing codes: dashboard owners can generate 6-digit, 15-minute codes; Android clients can enter a code during login/registration to link to the owner's fleet without using the owner's credentials. Schema lives in `supabase/migrations/002_device_pairing_codes.sql`.
 
 ## Build Output
 - Latest signed APK is exported at `HybridControl-v1.0.0.apk`.

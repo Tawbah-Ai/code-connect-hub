@@ -838,6 +838,69 @@
   cursor: not-allowed;
 }
 
+.pairing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pairing-icon {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  color: var(--accent-cyan);
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+}
+
+.pairing-copy h3 {
+  font-size: 17px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.pairing-copy p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.pairing-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 18px;
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.pairing-code-row span,
+.pairing-code-row small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pairing-code-row strong {
+  display: block;
+  margin: 4px 0;
+  color: var(--accent-cyan);
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+}
+
+.pairing-generate {
+  width: 100%;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .header {

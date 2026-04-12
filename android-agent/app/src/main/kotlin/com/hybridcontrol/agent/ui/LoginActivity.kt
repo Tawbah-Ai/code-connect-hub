@@ -33,13 +33,14 @@ class LoginActivity : AppCompatActivity() {
         binding.btnLogin.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString().trim()
+            val pairingCode = binding.etPairingCode.text.toString().trim()
 
             if (email.isEmpty() || password.isEmpty()) {
                 Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            performAuth(email, password)
+            performAuth(email, password, pairingCode)
         }
 
         binding.tvToggleMode.setOnClickListener {
@@ -60,7 +61,7 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun performAuth(email: String, password: String) {
+    private fun performAuth(email: String, password: String, pairingCode: String) {
         binding.progressBar.visibility = View.VISIBLE
         binding.btnLogin.isEnabled = false
 
@@ -68,9 +69,9 @@ class LoginActivity : AppCompatActivity() {
             try {
                 val authManager = HybridControlApp.instance.authManager
                 if (isRegistering) {
-                    authManager.register(email, password)
+                    authManager.register(email, password, pairingCode)
                 } else {
-                    authManager.login(email, password)
+                    authManager.login(email, password, pairingCode)
                 }
                 navigateToMain()
             } catch (e: Exception) {

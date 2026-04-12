@@ -1,6 +1,7 @@
 export interface Device {
   id: string;
   user_id: string;
+  linked_user_id?: string | null;
   device_id: string;
   device_name: string;
   model: string;
@@ -32,4 +33,14 @@ export interface LogEntry {
   type: 'command' | 'result' | 'error' | 'info';
   message: string;
   data?: unknown;
+}
+
+export interface PairingCode {
+  id: string;
+  owner_user_id: string;
+  code: string;
+  expires_at: string;
+  used_at: string | null;
+  used_by_device_id: string | null;
+  created_at: string;
 }

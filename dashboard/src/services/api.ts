@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Device, Command } from '../types';
+import type { Device, Command, PairingCode } from '../types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 class SupabaseService {
@@ -99,6 +99,27 @@ class SupabaseService {
       .eq('id', deviceId);
 
     if (error) throw new Error(error.message);
+  }
+
+  async createPairingCode(): Promise<PairingCode> {
+    const user = await this.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabase
+      .from('device_pairing_codes')
+      .insert({
+        owner_user_id: user.id,
+        code,
+        expires_at: expiresAt,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data as PairingCode;
   }
 
   // ─── Commands ──────────────────────────────────────

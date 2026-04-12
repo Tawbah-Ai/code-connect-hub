@@ -43,7 +43,7 @@ class AuthManager(private val context: Context) {
 
     fun getDeviceUuid(): String? = prefs.getString(KEY_DEVICE_UUID, null)
 
-    suspend fun login(email: String, password: String) = withContext(Dispatchers.IO) {
+    suspend fun login(email: String, password: String, pairingCode: String = "") = withContext(Dispatchers.IO) {
         val json = gson.toJson(mapOf("email" to email, "password" to password))
 
         val request = Request.Builder()
@@ -72,10 +72,14 @@ class AuthManager(private val context: Context) {
             ?: throw Exception("No user ID in response")
 
         saveAuthData(email, accessToken, userId)
-        registerDevice(accessToken, userId)
+        if (pairingCode.isNotBlank()) {
+            claimPairingCode(accessToken, pairingCode.filter { it.isDigit() })
+        } else {
+            registerDevice(accessToken, userId)
+        }
     }
 
-    suspend fun register(email: String, password: String) = withContext(Dispatchers.IO) {
+    suspend fun register(email: String, password: String, pairingCode: String = "") = withContext(Dispatchers.IO) {
         val json = gson.toJson(mapOf("email" to email, "password" to password))
 
         val request = Request.Builder()
@@ -105,7 +109,11 @@ class AuthManager(private val context: Context) {
 
         if (accessToken != null) {
             saveAuthData(email, accessToken, userId)
-            registerDevice(accessToken, userId)
+            if (pairingCode.isNotBlank()) {
+                claimPairingCode(accessToken, pairingCode.filter { it.isDigit() })
+            } else {
+                registerDevice(accessToken, userId)
+            }
         } else {
             // Email confirmation may be required — do NOT save empty token
             throw Exception("Check your email to confirm your account, then login")
@@ -219,6 +227,61 @@ class AuthManager(private val context: Context) {
             .putString(KEY_ROLE, role)
             .putString(KEY_DEVICE_ID, deviceInfo.deviceId)
             .apply { deviceUuid?.let { putString(KEY_DEVICE_UUID, it) } }
+            .apply()
+    }
+
+    private suspend fun claimPairingCode(accessToken: String, pairingCode: String) {
+        if (pairingCode.length != 6) {
+            throw Exception("Pairing code must be 6 digits")
+        }
+
+        val deviceInfo = DeviceUtils.getDeviceInfo(context)
+        val payload = gson.toJson(mapOf(
+            "p_code" to pairingCode,
+            "p_device_id" to deviceInfo.deviceId,
+            "p_device_name" to deviceInfo.deviceName,
+            "p_model" to deviceInfo.model,
+            "p_os_version" to deviceInfo.osVersion,
+            "p_manufacturer" to deviceInfo.manufacturer
+        ))
+
+        val request = Request.Builder()
+            .url("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/claim_device_pairing_code")
+            .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+            ?: throw Exception("Empty pairing response")
+
+        if (!response.isSuccessful) {
+            val errorMap = runCatching { parseJson(body) }.getOrDefault(emptyMap())
+            val errorMsg = errorMap["message"] as? String
+                ?: errorMap["msg"] as? String
+                ?: "Pairing failed"
+            throw Exception(errorMsg)
+        }
+
+        val parsed = if (body.trimStart().startsWith("[")) {
+            val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+            gson.fromJson<List<Map<String, Any>>>(body, type).firstOrNull()
+        } else {
+            parseJson(body)
+        } ?: throw Exception("Pairing response missing device data")
+
+        val deviceUuid = parsed["device_uuid"] as? String
+            ?: throw Exception("Pairing response missing device ID")
+        val ownerUserId = parsed["owner_user_id"] as? String
+            ?: throw Exception("Pairing response missing owner ID")
+
+        prefs.edit()
+            .putString(KEY_USER_ID, ownerUserId)
+            .putString(KEY_ROLE, "CLIENT")
+            .putString(KEY_DEVICE_ID, deviceInfo.deviceId)
+            .putString(KEY_DEVICE_UUID, deviceUuid)
             .apply()
     }
 
