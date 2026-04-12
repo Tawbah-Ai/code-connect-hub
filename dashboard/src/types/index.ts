@@ -54,3 +54,46 @@ export interface AppNotification {
   read: boolean;
   deviceName?: string;
 }
+
+export interface FileInfo {
+  name: string;
+  path: string;
+  size: number;
+  isDirectory: boolean;
+  lastModified: number;
+}
+
+export interface AppInfo {
+  packageName: string;
+  appName: string;
+}
+
+export interface DeviceInfo {
+  deviceId: string;
+  deviceName: string;
+  model: string;
+  manufacturer: string;
+  osVersion: string;
+  sdkVersion: number;
+  batteryLevel: number;
+  isScreenOn: boolean;
+}
+
+export interface StorageInfo {
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+  totalGB: string;
+  freeGB: string;
+  usedGB: string;
+}
+
+export interface CommandResultData {
+  commandType: string;
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+  timestamp: Date;
+}
+
+export type DashTab = 'overview' | 'screen' | 'files' | 'apps' | 'control' | 'info' | 'notifications' | 'log';

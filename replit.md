@@ -42,12 +42,31 @@ cd dashboard && npm run build
 
 ## Key Features
 - Auth & Role Management via Supabase Auth (OWNER/CLIENT roles)
-- Command Engine: OPEN_APP, TAKE_SCREENSHOT, DEVICE_INFO, file management
+- Command Engine: OPEN_APP, TAKE_SCREENSHOT, DEVICE_INFO, GET_FILES, LIST_APPS, GET_BATTERY, GET_STORAGE_INFO, DELETE_FILE
 - Touch Engine: Remote tap/swipe/text input via Android Accessibility Service
 - Realtime sync via Supabase Realtime
-- Live screen streaming: Dashboard sends START_STREAM/STOP_STREAM commands and subscribes to Supabase Broadcast frames.
-- 2025 UI refresh: Dashboard now includes operational stats cards, modern glass surfaces, clearer live-stream controls, and Android agent uses updated dark/cyan Material styling.
-- Device pairing codes: dashboard owners generate 6-digit, 15-minute codes via `POST /backend-api/api/pairing/generate`. Android clients claim codes via the backend `POST /api/pairing/claim`. Table lives in Replit PostgreSQL (`device_pairing_codes`). Schema also in `supabase/migrations/002_device_pairing_codes.sql`.
+- Live screen streaming: Dashboard sends START_STREAM/STOP_STREAM and subscribes to `screen-{device.id}` Broadcast channel
+- Sidebar navigation dashboard: Overview, Screen, Files, Apps, Control, Info, Alerts, Log tabs
+- Interactive file browser: Navigate directories, delete files, quick-path buttons
+- App list panel: Search and click-to-open installed apps
+- Device Info tab: Battery gauge, storage bar, detailed device info table
+- Automatic JWT token refresh: Android stores refresh_token, refreshes when within 5 min of expiry, handles 401s
+- Device UUID recovery: Android recovers UUID from Supabase on startup if SharedPreferences lost it
+- Device pairing codes: 6-digit, 15-minute codes via `POST /backend-api/api/pairing/generate`
+
+## APK Versions
+- v1.1.0: Initial release (`android-agent/HybridControl-Agent-v1.1.0-release.apk`)
+- v1.2.0: Token refresh + UUID recovery fix (`android-agent/HybridControl-Agent-v1.2.0-release.apk`)
+
+## Keystore
+- Path: `android-agent/hybridcontrol-release.jks`
+- Password: `hybridcontrol2024`, Alias: `hybridcontrol`
+
+## Critical Architecture Notes
+- Commands: Dashboard → Supabase `commands` table → Android polls every 2s → updates result → Dashboard realtime subscription
+- Screen stream: Android broadcasts to `realtime:screen-{deviceUuid}` via REST broadcast API; Dashboard subscribes to `screen-{device.id}` (both are the UUID PK)
+- Commands use device UUID PK (`device.id`), NOT the Android hardware ID (`device.device_id`)
+- Token expiry: Supabase tokens expire after 1 hour; refresh is handled in AuthManager.getValidToken()
 - Android permission compliance: All required permissions (camera, microphone, storage, notifications, overlay, battery optimization) are declared in AndroidManifest.xml and requested at runtime with Arabic-language rationale dialogs. Special permissions (SYSTEM_ALERT_WINDOW, battery optimization) open the correct system settings screens.
 - Boot receiver: App auto-starts the agent on device boot if the user was already logged in.
 - Backend pairing API: `/api/pairing/generate` and `/api/pairing/claim` endpoints with Replit PostgreSQL storage. Dashboard calls them via Vite dev proxy at `/backend-api/*`.

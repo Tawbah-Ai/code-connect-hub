@@ -9,7 +9,6 @@ import com.hybridcontrol.agent.HybridControlApp
 import com.hybridcontrol.agent.commands.CommandEngine
 import com.hybridcontrol.agent.model.*
 import com.hybridcontrol.agent.touch.TouchEngine
-import com.hybridcontrol.agent.util.DeviceUtils
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -17,9 +16,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * Replaces WebSocket with Supabase Realtime subscriptions.
- * Polls the commands table for PENDING commands and executes them.
+ * Polls the Supabase commands table for PENDING commands and executes them.
  * Updates device status via Supabase REST API.
+ * Automatically refreshes the Supabase JWT token when it is close to expiry.
  */
 class WebSocketManager(
     private val context: Context,
@@ -54,32 +53,25 @@ class WebSocketManager(
         fun onError(error: String)
     }
 
-    fun addConnectionListener(listener: ConnectionListener) {
-        connectionListeners.add(listener)
-    }
-
-    fun removeConnectionListener(listener: ConnectionListener) {
-        connectionListeners.remove(listener)
-    }
+    fun addConnectionListener(listener: ConnectionListener) = connectionListeners.add(listener)
+    fun removeConnectionListener(listener: ConnectionListener) = connectionListeners.remove(listener)
 
     fun connect(token: String) {
         shouldReconnect = true
-
         scope.launch {
             try {
-                // Update device status to ONLINE
-                updateDeviceStatus("ONLINE", token)
+                val authManager = HybridControlApp.instance.authManager
 
+                // Ensure device UUID is available before starting
+                authManager.ensureDeviceUuid(token)
+
+                val validToken = authManager.getValidToken() ?: token
+                updateDeviceStatus("ONLINE", validToken)
                 isConnected = true
                 connectionListeners.forEach { it.onConnected() }
-
-                // Start polling for commands
-                startCommandPolling(token)
-
-                // Start heartbeat (updates last_seen)
-                startHeartbeat(token)
-
-                Log.d(TAG, "Connected to Supabase")
+                startCommandPolling()
+                startHeartbeat()
+                Log.d(TAG, "Connected to Supabase. DeviceUUID=${authManager.getDeviceUuid()}")
             } catch (e: Exception) {
                 Log.e(TAG, "Connection failed: ${e.message}")
                 connectionListeners.forEach { it.onError(e.message ?: "Connection failed") }
@@ -88,10 +80,18 @@ class WebSocketManager(
         }
     }
 
+    private suspend fun getAuthHeader(): String {
+        val authManager = HybridControlApp.instance.authManager
+        val token = authManager.getValidToken()
+            ?: authManager.getAccessToken()
+            ?: throw IllegalStateException("No access token available")
+        return "Bearer $token"
+    }
+
     private fun updateDeviceStatus(status: String, token: String) {
         val authManager = HybridControlApp.instance.authManager
         val deviceId = authManager.getDeviceId()
-        val userId = authManager.getUserId() ?: throw IllegalStateException("User ID not available")
+        val userId = authManager.getUserId() ?: return
 
         val updateData = gson.toJson(mapOf(
             "status" to status,
@@ -107,31 +107,53 @@ class WebSocketManager(
             .patch(updateData.toRequestBody("application/json".toMediaType()))
             .build()
 
-        client.newCall(request).execute().use { /* close response to avoid connection leak */ }
+        client.newCall(request).execute().use { }
     }
 
-    private fun startCommandPolling(token: String) {
+    private fun startCommandPolling() {
         commandPollJob?.cancel()
         commandPollJob = scope.launch {
             val authManager = HybridControlApp.instance.authManager
-            val deviceUuid = authManager.getDeviceUuid()
-
-            if (deviceUuid == null) {
-                Log.e(TAG, "Device UUID not available, cannot poll for commands")
-                return@launch
-            }
 
             while (isActive && isConnected) {
                 try {
-                    // Query for PENDING commands targeting this device (using UUID PK)
+                    val deviceUuid = authManager.getDeviceUuid()
+                    if (deviceUuid == null) {
+                        // Try to recover UUID before giving up
+                        val tok = authManager.getValidToken() ?: authManager.getAccessToken()
+                        if (tok != null) authManager.ensureDeviceUuid(tok)
+                        if (authManager.getDeviceUuid() == null) {
+                            Log.e(TAG, "Device UUID not available, skipping poll cycle")
+                            delay(5000)
+                            continue
+                        }
+                    }
+
+                    val authHeader = getAuthHeader()
+
                     val request = Request.Builder()
-                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?device_id=eq.$deviceUuid&status=eq.PENDING&order=created_at.asc&limit=10")
+                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?device_id=eq.${authManager.getDeviceUuid()}&status=eq.PENDING&order=created_at.asc&limit=10")
                         .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                        .addHeader("Authorization", "Bearer $token")
+                        .addHeader("Authorization", authHeader)
                         .build()
 
                     val response = client.newCall(request).execute()
                     val body = response.body?.string()
+
+                    if (response.code == 401) {
+                        // Token expired — force refresh
+                        Log.w(TAG, "401 on poll, forcing token refresh")
+                        val refreshToken = authManager.getRefreshToken()
+                        if (refreshToken != null) {
+                            try {
+                                authManager.refreshAccessToken(refreshToken)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Forced refresh failed: ${e.message}")
+                            }
+                        }
+                        delay(2000)
+                        continue
+                    }
 
                     if (response.isSuccessful && body != null) {
                         consecutivePollFailures = 0
@@ -140,7 +162,6 @@ class WebSocketManager(
 
                         for (cmdMap in commands) {
                             val cmdId = cmdMap["id"] as? String ?: continue
-                            // Skip commands already being processed to prevent duplicate execution
                             if (cmdId in processingCommandIds) continue
                             val cmdType = cmdMap["type"] as? String ?: continue
                             @Suppress("UNCHECKED_CAST")
@@ -155,49 +176,48 @@ class WebSocketManager(
 
                             processingCommandIds.add(cmdId)
                             connectionListeners.forEach { it.onCommandReceived(command) }
-                            executeCommand(command, token)
+                            executeCommand(command)
                         }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Command poll error: ${e.message}")
                     consecutivePollFailures++
                     if (consecutivePollFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        Log.e(TAG, "$MAX_CONSECUTIVE_FAILURES consecutive poll failures, triggering disconnect")
+                        Log.e(TAG, "Too many poll failures, reconnecting")
                         handleDisconnect()
                         return@launch
                     }
                 }
 
-                delay(2000) // Poll every 2 seconds
+                delay(2000)
             }
         }
     }
 
-    private fun executeCommand(command: RemoteCommand, token: String) {
+    private fun executeCommand(command: RemoteCommand) {
         scope.launch {
             try {
                 val result = when (controlMode) {
                     ControlMode.COMMAND -> commandEngine.execute(command)
                     ControlMode.TOUCH -> touchEngine.execute(command)
                     ControlMode.HYBRID -> {
-                        if (commandEngine.canHandle(command.type)) {
-                            commandEngine.execute(command)
-                        } else {
-                            touchEngine.execute(command)
-                        }
+                        if (commandEngine.canHandle(command.type)) commandEngine.execute(command)
+                        else touchEngine.execute(command)
                     }
                 }
-
                 connectionListeners.forEach { it.onCommandResult(result) }
-                updateCommandResult(command.id, result, token)
+                updateCommandResult(command.id, result)
             } finally {
                 processingCommandIds.remove(command.id)
             }
         }
     }
 
-    private fun updateCommandResult(commandId: String, result: CommandResult, token: String) {
+    private suspend fun updateCommandResult(commandId: String, result: CommandResult) {
         try {
+            val authHeader = getAuthHeader()
+            val authManager = HybridControlApp.instance.authManager
+
             val status = if (result.success) "EXECUTED" else "FAILED"
             val resultData = gson.toJson(mapOf(
                 "success" to result.success,
@@ -213,21 +233,16 @@ class WebSocketManager(
             val request = Request.Builder()
                 .url("${BuildConfig.SUPABASE_URL}/rest/v1/commands?id=eq.$commandId")
                 .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Authorization", authHeader)
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Prefer", "return=minimal")
                 .patch(updateData.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { /* close response */ }
+            client.newCall(request).execute().use { }
 
-            // Also write to logs table
-            val authManager = HybridControlApp.instance.authManager
-            val deviceUuid = authManager.getDeviceUuid()
-            if (deviceUuid == null) {
-                Log.w(TAG, "Device UUID not available, skipping log entry")
-                return
-            }
+            // Log to logs table
+            val deviceUuid = authManager.getDeviceUuid() ?: return
             val logData = gson.toJson(mapOf(
                 "device_id" to deviceUuid,
                 "user_id" to authManager.getUserId(),
@@ -238,29 +253,46 @@ class WebSocketManager(
             val logRequest = Request.Builder()
                 .url("${BuildConfig.SUPABASE_URL}/rest/v1/logs")
                 .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Authorization", authHeader)
                 .addHeader("Content-Type", "application/json")
                 .post(logData.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(logRequest).execute().use { /* close response */ }
+            client.newCall(logRequest).execute().use { }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update command result: ${e.message}")
         }
     }
 
-    private fun startHeartbeat(token: String) {
+    private fun startHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (isActive && isConnected) {
                 try {
-                    updateDeviceStatus("ONLINE", token)
+                    val authHeader = getAuthHeader()
+                    val authManager = HybridControlApp.instance.authManager
+                    val deviceId = authManager.getDeviceId()
+                    val userId = authManager.getUserId() ?: continue
+
+                    val updateData = gson.toJson(mapOf(
+                        "status" to "ONLINE",
+                        "last_seen" to java.time.Instant.now().toString()
+                    ))
+                    val request = Request.Builder()
+                        .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?device_id=eq.$deviceId&user_id=eq.$userId")
+                        .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                        .addHeader("Authorization", authHeader)
+                        .addHeader("Content-Type", "application/json")
+                        .addHeader("Prefer", "return=minimal")
+                        .patch(updateData.toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    client.newCall(request).execute().use { }
                     consecutiveHeartbeatFailures = 0
                 } catch (e: Exception) {
                     Log.w(TAG, "Heartbeat failed: ${e.message}")
                     consecutiveHeartbeatFailures++
                     if (consecutiveHeartbeatFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        Log.e(TAG, "$MAX_CONSECUTIVE_FAILURES consecutive heartbeat failures, triggering disconnect")
                         handleDisconnect()
                         return@launch
                     }
@@ -276,7 +308,6 @@ class WebSocketManager(
         commandPollJob?.cancel()
         connectionListeners.forEach { it.onDisconnected() }
 
-        // Only start reconnect if not already reconnecting
         if (shouldReconnect && (reconnectJob == null || reconnectJob?.isActive != true)) {
             scheduleReconnect()
         }
@@ -289,20 +320,27 @@ class WebSocketManager(
             while (shouldReconnect && !isConnected) {
                 Log.d(TAG, "Reconnecting in ${retryDelay}ms...")
                 delay(retryDelay)
-                val token = HybridControlApp.instance.authManager.getAccessToken()
+                val authManager = HybridControlApp.instance.authManager
+                val token = try {
+                    authManager.getValidToken() ?: authManager.getAccessToken()
+                } catch (e: Exception) {
+                    authManager.getAccessToken()
+                }
+
                 if (token != null) {
                     try {
+                        authManager.ensureDeviceUuid(token)
                         updateDeviceStatus("ONLINE", token)
                         isConnected = true
                         consecutivePollFailures = 0
                         consecutiveHeartbeatFailures = 0
                         connectionListeners.forEach { it.onConnected() }
-                        startCommandPolling(token)
-                        startHeartbeat(token)
+                        startCommandPolling()
+                        startHeartbeat()
                         Log.d(TAG, "Reconnected to Supabase")
                         return@launch
                     } catch (e: Exception) {
-                        Log.e(TAG, "Reconnect attempt failed: ${e.message}")
+                        Log.e(TAG, "Reconnect failed: ${e.message}")
                         isConnected = false
                     }
                 }
@@ -311,9 +349,7 @@ class WebSocketManager(
         }
     }
 
-    fun setControlMode(mode: ControlMode) {
-        controlMode = mode
-    }
+    fun setControlMode(mode: ControlMode) { controlMode = mode }
 
     fun disconnect() {
         shouldReconnect = false
@@ -322,16 +358,16 @@ class WebSocketManager(
         commandPollJob?.cancel()
 
         scope.launch {
-            val token = HybridControlApp.instance.authManager.getAccessToken()
+            val token = try {
+                HybridControlApp.instance.authManager.getValidToken()
+                    ?: HybridControlApp.instance.authManager.getAccessToken()
+            } catch (e: Exception) {
+                HybridControlApp.instance.authManager.getAccessToken()
+            }
             if (token != null) {
-                try {
-                    updateDeviceStatus("OFFLINE", token)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to set OFFLINE status on disconnect: ${e.message}")
-                }
+                try { updateDeviceStatus("OFFLINE", token) } catch (e: Exception) { }
             }
         }
-
         isConnected = false
     }
 
