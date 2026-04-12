@@ -43,9 +43,6 @@ class WebSocketManager(
     private val processingCommandIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var consecutivePollFailures = 0
     private var consecutiveHeartbeatFailures = 0
-    private companion object FailureThresholds {
-        private const val MAX_CONSECUTIVE_FAILURES = 3
-    }
 
     private val connectionListeners = java.util.concurrent.CopyOnWriteArrayList<ConnectionListener>()
 
@@ -344,5 +341,6 @@ class WebSocketManager(
         private const val TAG = "SupabaseRealtimeManager"
         private const val INITIAL_RECONNECT_DELAY = 1000L
         private const val MAX_RECONNECT_DELAY = 30000L
+        private const val MAX_CONSECUTIVE_FAILURES = 3
     }
 }
