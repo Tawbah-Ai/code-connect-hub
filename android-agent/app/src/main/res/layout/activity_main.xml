@@ -51,7 +51,9 @@
             android:layout_marginBottom="12dp"
             app:cardBackgroundColor="@color/bg_card"
             app:cardCornerRadius="22dp"
-            app:cardElevation="8dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/border_subtle"
+            app:strokeWidth="1dp"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
             <LinearLayout
@@ -100,7 +102,9 @@
             android:layout_marginBottom="12dp"
             app:cardBackgroundColor="@color/bg_card"
             app:cardCornerRadius="22dp"
-            app:cardElevation="8dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/border_subtle"
+            app:strokeWidth="1dp"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
             <LinearLayout
@@ -225,7 +229,9 @@
             android:layout_marginBottom="12dp"
             app:cardBackgroundColor="@color/bg_card"
             app:cardCornerRadius="22dp"
-            app:cardElevation="8dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/border_subtle"
+            app:strokeWidth="1dp"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
             <LinearLayout
@@ -289,7 +295,9 @@
             android:layout_marginBottom="12dp"
             app:cardBackgroundColor="@color/bg_card"
             app:cardCornerRadius="22dp"
-            app:cardElevation="8dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/border_subtle"
+            app:strokeWidth="1dp"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
             <LinearLayout
@@ -353,7 +361,9 @@
             android:layout_height="wrap_content"
             app:cardBackgroundColor="@color/bg_card"
             app:cardCornerRadius="22dp"
-            app:cardElevation="8dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/border_subtle"
+            app:strokeWidth="1dp"
             xmlns:app="http://schemas.android.com/apk/res-auto">
 
             <LinearLayout

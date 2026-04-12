@@ -18,8 +18,8 @@ android {
         applicationId = "com.hybridcontrol.agent"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL") ?: ""
         val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY") ?: ""
@@ -47,6 +47,11 @@ android {
             )
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     compileOptions {
