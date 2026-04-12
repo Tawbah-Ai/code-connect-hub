@@ -11,7 +11,10 @@ import com.hybridcontrol.agent.model.CommandResult
 import com.hybridcontrol.agent.model.FileInfo
 import com.hybridcontrol.agent.model.RemoteCommand
 import com.hybridcontrol.agent.util.DeviceUtils
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import kotlin.coroutines.resume
 
 class CommandEngine(private val context: Context) {
 
@@ -20,6 +23,8 @@ class CommandEngine(private val context: Context) {
         "GET_FILES",
         "DELETE_FILE",
         "TAKE_SCREENSHOT",
+        "START_STREAM",
+        "STOP_STREAM",
         "DEVICE_INFO",
         "LIST_APPS",
         "GET_BATTERY",
@@ -38,6 +43,8 @@ class CommandEngine(private val context: Context) {
                 "GET_FILES" -> getFiles(command)
                 "DELETE_FILE" -> deleteFile(command)
                 "TAKE_SCREENSHOT" -> takeScreenshot(command)
+                "START_STREAM" -> startStream(command)
+                "STOP_STREAM" -> stopStream(command)
                 "DEVICE_INFO" -> getDeviceInfo(command)
                 "LIST_APPS" -> listApps(command)
                 "GET_BATTERY" -> getBattery(command)
@@ -125,16 +132,87 @@ class CommandEngine(private val context: Context) {
         )
     }
 
-    private fun takeScreenshot(command: RemoteCommand): CommandResult {
-        // MediaProjection requires an Activity context and user permission
-        // The ScreenCaptureActivity handles this flow
-        ScreenCaptureManager.requestCapture(context, command.id)
+    /**
+     * Captures a single screenshot and returns the base64 JPEG image in the result.
+     * Uses a coroutine to await the async capture callback.
+     */
+    private suspend fun takeScreenshot(command: RemoteCommand): CommandResult {
+        val base64Image = withTimeoutOrNull(10_000L) {
+            suspendCancellableCoroutine<String?> { continuation ->
+                ScreenCaptureManager.captureCallback = { _, success, data ->
+                    if (success && data != null && data != "stream_started") {
+                        continuation.resume(data)
+                    } else {
+                        continuation.resume(null)
+                    }
+                }
+                ScreenCaptureManager.requestCapture(context, command.id)
+            }
+        }
+
+        return if (base64Image != null) {
+            CommandResult(
+                commandId = command.id,
+                type = command.type,
+                success = true,
+                data = mapOf("image" to base64Image, "format" to "jpeg")
+            )
+        } else {
+            CommandResult(
+                commandId = command.id,
+                type = command.type,
+                success = false,
+                error = "Screenshot capture failed or timed out"
+            )
+        }
+    }
+
+    /**
+     * Starts live screen streaming to the dashboard via Supabase Broadcast.
+     * The user must grant MediaProjection permission when prompted.
+     */
+    private suspend fun startStream(command: RemoteCommand): CommandResult {
+        if (ScreenCaptureManager.isStreaming) {
+            return CommandResult(
+                commandId = command.id,
+                type = command.type,
+                success = true,
+                data = mapOf("status" to "already_streaming")
+            )
+        }
+
+        val started = withTimeoutOrNull(30_000L) {
+            suspendCancellableCoroutine<Boolean> { continuation ->
+                ScreenCaptureManager.captureCallback = { _, success, data ->
+                    if (data == "stream_started") {
+                        continuation.resume(true)
+                    } else {
+                        continuation.resume(false)
+                    }
+                }
+                ScreenCaptureManager.requestStream(context, command.id)
+            }
+        } ?: false
 
         return CommandResult(
             commandId = command.id,
             type = command.type,
+            success = started,
+            data = if (started) mapOf("status" to "stream_started") else null,
+            error = if (!started) "Stream failed to start — ensure MediaProjection permission is granted" else null
+        )
+    }
+
+    /**
+     * Stops live screen streaming.
+     */
+    private fun stopStream(command: RemoteCommand): CommandResult {
+        ScreenCaptureManager.stopStream(context)
+        return CommandResult(
+            commandId = command.id,
+            type = command.type,
             success = true,
-            data = mapOf("status" to "capture_initiated", "message" to "Screenshot capture started")
+            data = mapOf("status" to "stream_stopped")
         )
     }
 

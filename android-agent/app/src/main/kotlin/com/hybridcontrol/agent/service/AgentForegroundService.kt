@@ -17,6 +17,7 @@ import com.hybridcontrol.agent.ui.MainActivity
 class AgentForegroundService : Service() {
 
     private lateinit var webSocketManager: WebSocketManager
+    private var serviceListener: WebSocketManager.ConnectionListener? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -36,9 +37,9 @@ class AgentForegroundService : Service() {
         val notification = createNotification("Connecting...")
         startForeground(HybridControlApp.NOTIFICATION_ID, notification)
 
-        val token = HybridControlApp.instance.authManager.getToken()
+        val token = HybridControlApp.instance.authManager.getAccessToken()
         if (token != null) {
-            webSocketManager.connectionListener = object : WebSocketManager.ConnectionListener {
+            serviceListener = object : WebSocketManager.ConnectionListener {
                 override fun onConnected() {
                     Log.d(TAG, "Connected to server")
                     updateNotification("Connected - Monitoring")
@@ -61,6 +62,7 @@ class AgentForegroundService : Service() {
                     Log.e(TAG, "Error: $error")
                 }
             }
+            webSocketManager.addConnectionListener(serviceListener!!)
             webSocketManager.connect(token)
         } else {
             Log.e(TAG, "No auth token available")
@@ -69,6 +71,8 @@ class AgentForegroundService : Service() {
     }
 
     private fun stopAgent() {
+        serviceListener?.let { webSocketManager.removeConnectionListener(it) }
+        serviceListener = null
         webSocketManager.disconnect()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -101,6 +105,8 @@ class AgentForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceListener?.let { webSocketManager.removeConnectionListener(it) }
+        serviceListener = null
         webSocketManager.disconnect()
         Log.d(TAG, "Agent service destroyed")
     }

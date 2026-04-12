@@ -12,6 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.hybridcontrol.agent.HybridControlApp
 import com.hybridcontrol.agent.connection.WebSocketManager
 import com.hybridcontrol.agent.databinding.ActivityMainBinding
@@ -26,6 +28,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var isAgentRunning = false
+    private var activityListener: WebSocketManager.ConnectionListener? = null
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -73,9 +76,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnLogout.setOnClickListener {
             stopAgentService()
-            authManager.logout()
-            startActivity(Intent(this, LoginActivity::class.java))
-            finish()
+            lifecycleScope.launch {
+                authManager.logout()
+                startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                finish()
+            }
         }
 
         binding.btnAccessibility.setOnClickListener {
@@ -100,8 +105,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWebSocketListener() {
-        HybridControlApp.instance.webSocketManager.connectionListener =
-            object : WebSocketManager.ConnectionListener {
+        activityListener = object : WebSocketManager.ConnectionListener {
                 override fun onConnected() {
                     runOnUiThread {
                         updateAgentStatus(true)
@@ -135,6 +139,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        HybridControlApp.instance.webSocketManager.addConnectionListener(activityListener!!)
     }
 
     private fun updateAgentStatus(connected: Boolean) {
@@ -222,6 +227,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateAccessibilityStatus()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activityListener?.let {
+            HybridControlApp.instance.webSocketManager.removeConnectionListener(it)
+        }
+        activityListener = null
     }
 
     companion object {

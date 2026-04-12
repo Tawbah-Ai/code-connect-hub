@@ -97,7 +97,9 @@ class TouchAccessibilityService : AccessibilityService() {
 
     fun performInputText(text: String): Boolean {
         val rootNode = rootInActiveWindow ?: return false
-        val focusedNode = findFocusedNode(rootNode) ?: return false
+        val focusedNode = findFocusedNode(rootNode)
+        rootNode.recycle()
+        if (focusedNode == null) return false
 
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
@@ -114,7 +116,10 @@ class TouchAccessibilityService : AccessibilityService() {
         for (i in 0 until root.childCount) {
             val child = root.getChild(i) ?: continue
             val result = findFocusedNode(child)
-            if (result != null) return result
+            if (result != null) {
+                child.recycle()
+                return result
+            }
             child.recycle()
         }
         return null

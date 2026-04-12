@@ -9,19 +9,6 @@ data class DeviceInfo(
     val manufacturer: String
 )
 
-data class AuthRequest(
-    val email: String,
-    val password: String,
-    val device: DeviceInfo
-)
-
-data class AuthResponse(
-    val token: String,
-    val userId: String,
-    val deviceId: String,
-    val role: DeviceRole
-)
-
 enum class DeviceRole {
     OWNER,
     CLIENT
@@ -47,19 +34,6 @@ enum class ControlMode {
     TOUCH,
     HYBRID
 }
-
-data class HeartbeatPayload(
-    val deviceId: String,
-    val timestamp: Long,
-    val batteryLevel: Int? = null,
-    val isScreenOn: Boolean = false,
-    val isUserActive: Boolean = false
-)
-
-data class WebSocketMessage(
-    val type: String,
-    val payload: Map<String, Any>? = null
-)
 
 data class FileInfo(
     val name: String,
