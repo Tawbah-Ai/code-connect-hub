@@ -1,0 +1,143 @@
+## 🚨 FINAL EXECUTION ORDER — DELIVER WORKING ANDROID APK NOW
+
+Stop suggesting manual steps or partial setup.
+
+I do NOT want instructions.
+I want a **fully working result**.
+
+---
+
+# 🎯 CURRENT STATUS (ACKNOWLEDGED)
+
+You confirmed:
+
+* Backend is working
+* Dashboard is working
+* Database is working
+
+BUT:
+
+> Android Agent is NOT working in real-world usage yet
+
+---
+
+# ❗ REQUIRED ACTION (NO DISCUSSION)
+
+You must COMPLETE the Android side and deliver a **TESTABLE RESULT**, not instructions.
+
+---
+
+# 📱 ANDROID DELIVERY REQUIREMENTS
+
+## 1. BUILD-READY ANDROID PROJECT
+
+* The android-agent project must:
+
+  * Open in Android Studio without errors
+  * Build successfully (Gradle working)
+  * No missing configs or placeholders
+
+---
+
+## 2. ZERO MANUAL FIXES REQUIRED
+
+I should NOT need to:
+
+* Fix configs
+* Guess URLs
+* Modify code
+* Add missing files
+
+Everything must be pre-configured.
+
+---
+
+## 3. APK GENERATION (MANDATORY)
+
+Provide:
+
+* A fully buildable APK
+* Or exact one-click build command that produces APK without errors
+
+---
+
+## 4. REAL DEVICE EXECUTION (CRITICAL)
+
+After installing the APK:
+
+* Login must work
+* Device must appear ONLINE
+* WebSocket must stay connected in background
+
+---
+
+# 🔴 MOST IMPORTANT — LIVE SCREEN STREAM
+
+You MUST complete:
+
+* Real screen streaming using MediaProjection
+* Continuous frame streaming (NOT screenshots)
+* Display stream in dashboard
+
+---
+
+# 🖱️ REMOTE CONTROL (MANDATORY)
+
+You MUST implement:
+
+* Tap
+* Swipe
+* Text input
+
+Using Accessibility Service
+
+---
+
+# 📡 REAL-TIME BEHAVIOR
+
+* No delays > 2 seconds
+* No polling
+* Stable connection even when app is minimized
+
+---
+
+# ❗ ACCEPTANCE CRITERIA
+
+I will ONLY accept the system if:
+
+✔ I install APK on phone
+✔ Login works
+✔ Device appears ONLINE
+✔ I see LIVE screen of that phone
+✔ I can control it from another device
+✔ Commands execute physically
+
+---
+
+# ⛔ REJECTION CONDITIONS
+
+If you:
+
+* Give instructions instead of results
+* Provide partial setup
+* Leave missing configs
+* Deliver non-working APK
+
+Then the task is NOT complete.
+
+---
+
+# 🎯 FINAL GOAL
+
+> Full live Android remote control:
+
+* Live screen streaming
+* Real-time control
+* No simulation
+* No placeholders
+
+---
+
+## 🚀 EXECUTE NOW
+
+Finish Android Agent completely and deliver a working, testable result.
