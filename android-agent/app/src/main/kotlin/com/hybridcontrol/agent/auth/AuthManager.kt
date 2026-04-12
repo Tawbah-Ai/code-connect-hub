@@ -115,21 +115,39 @@ class AuthManager(private val context: Context) {
     private suspend fun registerDevice(accessToken: String, userId: String) {
         val deviceInfo = DeviceUtils.getDeviceInfo(context)
 
-        // Check existing devices to determine role
+        // Check existing devices (excluding current device) to determine role
         val devicesReq = Request.Builder()
-            .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?user_id=eq.$userId&select=id")
+            .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?user_id=eq.$userId&device_id=neq.${deviceInfo.deviceId}&select=id")
             .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
             .addHeader("Authorization", "Bearer $accessToken")
             .build()
 
         val devicesResp = client.newCall(devicesReq).execute()
         val devicesBody = devicesResp.body?.string() ?: "[]"
+        devicesResp.close()
         val devicesList = try {
             val type = object : TypeToken<List<Map<String, Any>>>() {}.type
             gson.fromJson<List<Map<String, Any>>>(devicesBody, type)
         } catch (e: Exception) { emptyList() }
 
-        val role = if (devicesList.isEmpty()) "OWNER" else "CLIENT"
+        // Check if current device already exists and has a role
+        val existingDeviceReq = Request.Builder()
+            .url("${BuildConfig.SUPABASE_URL}/rest/v1/devices?user_id=eq.$userId&device_id=eq.${deviceInfo.deviceId}&select=id,role")
+            .addHeader("apikey", BuildConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .build()
+
+        val existingResp = client.newCall(existingDeviceReq).execute()
+        val existingBody = existingResp.body?.string() ?: "[]"
+        existingResp.close()
+        val existingDevice = try {
+            val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+            gson.fromJson<List<Map<String, Any>>>(existingBody, type).firstOrNull()
+        } catch (e: Exception) { null }
+
+        // Preserve existing role on re-login; only assign role for new devices
+        val role = existingDevice?.get("role") as? String
+            ?: if (devicesList.isEmpty()) "OWNER" else "CLIENT"
 
         // Upsert device
         val deviceData = gson.toJson(mapOf(
@@ -222,7 +240,7 @@ class AuthManager(private val context: Context) {
                     .addHeader("Authorization", "Bearer $token")
                     .post("".toRequestBody("application/json".toMediaType()))
                     .build()
-                client.newCall(request).execute()
+                client.newCall(request).execute().use { /* close response */ }
             } catch (e: Exception) {
                 Log.w(TAG, "Logout request failed: ${e.message}")
             }

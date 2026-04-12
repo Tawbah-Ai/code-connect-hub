@@ -38,6 +38,7 @@ class WebSocketManager(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var heartbeatJob: Job? = null
     private var commandPollJob: Job? = null
+    private var reconnectJob: Job? = null
     private var controlMode = ControlMode.HYBRID
 
     var connectionListener: ConnectionListener? = null
@@ -96,7 +97,7 @@ class WebSocketManager(
             .build()
 
         try {
-            client.newCall(request).execute()
+            client.newCall(request).execute().use { /* close response to avoid connection leak */ }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to update device status: ${e.message}")
         }
@@ -197,7 +198,7 @@ class WebSocketManager(
                 .patch(updateData.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(request).execute()
+            client.newCall(request).execute().use { /* close response */ }
 
             // Also write to logs table
             val authManager = HybridControlApp.instance.authManager
@@ -221,7 +222,7 @@ class WebSocketManager(
                 .post(logData.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(logRequest).execute()
+            client.newCall(logRequest).execute().use { /* close response */ }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update command result: ${e.message}")
         }
@@ -243,22 +244,35 @@ class WebSocketManager(
         commandPollJob?.cancel()
         connectionListener?.onDisconnected()
 
-        if (shouldReconnect) {
+        // Only start reconnect if not already reconnecting
+        if (shouldReconnect && (reconnectJob == null || reconnectJob?.isActive != true)) {
             scheduleReconnect()
         }
     }
 
     private fun scheduleReconnect() {
-        scope.launch {
-            var delay = INITIAL_RECONNECT_DELAY
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            var retryDelay = INITIAL_RECONNECT_DELAY
             while (shouldReconnect && !isConnected) {
-                Log.d(TAG, "Reconnecting in ${delay}ms...")
-                delay(delay)
+                Log.d(TAG, "Reconnecting in ${retryDelay}ms...")
+                delay(retryDelay)
                 val token = HybridControlApp.instance.authManager.getAccessToken()
                 if (token != null) {
-                    connect(token)
+                    try {
+                        updateDeviceStatus("ONLINE", token)
+                        isConnected = true
+                        connectionListener?.onConnected()
+                        startCommandPolling(token)
+                        startHeartbeat(token)
+                        Log.d(TAG, "Reconnected to Supabase")
+                        return@launch
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Reconnect attempt failed: ${e.message}")
+                        isConnected = false
+                    }
                 }
-                delay = (delay * 2).coerceAtMost(MAX_RECONNECT_DELAY)
+                retryDelay = (retryDelay * 2).coerceAtMost(MAX_RECONNECT_DELAY)
             }
         }
     }
@@ -269,6 +283,7 @@ class WebSocketManager(
 
     fun disconnect() {
         shouldReconnect = false
+        reconnectJob?.cancel()
         heartbeatJob?.cancel()
         commandPollJob?.cancel()
 
