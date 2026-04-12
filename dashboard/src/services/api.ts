@@ -105,38 +105,18 @@ class SupabaseService {
     const user = await this.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    await supabase
-      .from('device_pairing_codes')
-      .delete()
-      .eq('owner_user_id', user.id)
-      .is('used_at', null)
-      .lt('expires_at', new Date().toISOString());
+    const response = await fetch('/backend-api/api/pairing/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    });
 
-    let code = '';
-    for (let attempts = 0; attempts < 10; attempts++) {
-      code = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data: existing } = await supabase
-        .from('device_pairing_codes')
-        .select('id')
-        .eq('code', code)
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle();
-      if (!existing) break;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to generate pairing code');
     }
 
-    if (!code) throw new Error('Could not generate unique code, try again');
-
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-    const { data, error } = await supabase
-      .from('device_pairing_codes')
-      .insert({ owner_user_id: user.id, code, expires_at: expiresAt })
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data as PairingCode;
+    return response.json() as Promise<PairingCode>;
   }
 
   // ─── Commands ──────────────────────────────────────
