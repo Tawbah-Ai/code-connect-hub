@@ -10,6 +10,7 @@ import authRoutes from './routes/authRoutes';
 import deviceRoutes from './routes/deviceRoutes';
 import pairingRoutes from './routes/pairingRoutes';
 import { WSServer } from './websocket/wsServer';
+import { initDatabase } from './db/database';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -67,6 +68,11 @@ if (fs.existsSync(dashboardDist)) {
   });
   console.log(`[Server] Serving dashboard from ${dashboardDist}`);
 }
+
+// Initialize DB then start server
+initDatabase().catch((err) => {
+  console.error('[Server] DB init failed:', err.message);
+});
 
 // Create HTTP server and attach WebSocket
 const server = http.createServer(app);

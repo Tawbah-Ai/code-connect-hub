@@ -1,9 +1,14 @@
 import { Device, DeviceRole, DeviceStatus } from '../types';
+import { query } from '../db/database';
 
-// In-memory device storage
+// In-memory device storage (fast access for WebSocket routing)
 const devices: Map<string, Device> = new Map();
 
 export class DeviceRegistry {
+  static loadOrUpdate(device: Device): void {
+    devices.set(device.deviceId, device);
+  }
+
   static registerDevice(device: Device): void {
     devices.set(device.deviceId, device);
     console.log(`[DeviceRegistry] Device registered: ${device.deviceId} (${device.role})`);
@@ -28,6 +33,10 @@ export class DeviceRegistry {
       device.lastHeartbeat = Date.now();
       devices.set(deviceId, device);
     }
+    query(
+      `UPDATE devices SET status = 'ONLINE', last_heartbeat = $1 WHERE device_id = $2`,
+      [Date.now(), deviceId]
+    ).catch(() => {});
   }
 
   static setDeviceOffline(deviceId: string): void {
@@ -36,6 +45,10 @@ export class DeviceRegistry {
       device.status = DeviceStatus.OFFLINE;
       devices.set(deviceId, device);
     }
+    query(
+      `UPDATE devices SET status = 'OFFLINE' WHERE device_id = $1`,
+      [deviceId]
+    ).catch(() => {});
   }
 
   static updateHeartbeat(deviceId: string, batteryLevel?: number, isScreenOn?: boolean, isUserActive?: boolean): void {
@@ -44,6 +57,35 @@ export class DeviceRegistry {
       device.lastHeartbeat = Date.now();
       device.status = DeviceStatus.ONLINE;
       devices.set(deviceId, device);
+    }
+    query(
+      `UPDATE devices SET status = 'ONLINE', last_heartbeat = $1 WHERE device_id = $2`,
+      [Date.now(), deviceId]
+    ).catch(() => {});
+  }
+
+  static async loadDevicesFromDB(userId: string): Promise<void> {
+    try {
+      const result = await query('SELECT * FROM devices WHERE user_id = $1', [userId]);
+      for (const row of result.rows) {
+        if (!devices.has(row.device_id)) {
+          devices.set(row.device_id, {
+            deviceId: row.device_id,
+            userId: row.user_id,
+            deviceName: row.device_name,
+            model: row.model,
+            osVersion: row.os_version,
+            sdkVersion: row.sdk_version,
+            manufacturer: row.manufacturer,
+            role: row.role,
+            status: DeviceStatus.OFFLINE,
+            lastHeartbeat: Number(row.last_heartbeat),
+            registeredAt: new Date(row.registered_at),
+          });
+        }
+      }
+    } catch (e) {
+      // non-fatal
     }
   }
 

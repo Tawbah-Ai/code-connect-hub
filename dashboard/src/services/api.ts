@@ -1,290 +1,266 @@
-import { supabase } from '../lib/supabase';
 import type { Device, Command, PairingCode } from '../types';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 
-class SupabaseService {
-  private deviceChannel: RealtimeChannel | null = null;
-  private commandChannel: RealtimeChannel | null = null;
-  private screenChannel: RealtimeChannel | null = null;
+const BACKEND = import.meta.env.VITE_BACKEND_URL || '/backend-api';
 
-  // ─── Auth ───────────────────────────────────────────
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem('hc_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-  async register(email: string, password: string) {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error('Registration failed');
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${BACKEND}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeader(),
+      ...(options.headers as Record<string, string> || {}),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error || `Request failed: ${res.status}`);
+  return data as T;
+}
 
-    // Register dashboard as a device
-    await this.registerDashboardDevice(data.user.id);
-    return data;
+// ─── WebSocket ───────────────────────────────────────────────────────────────
+
+interface WSMessage {
+  type: string;
+  payload?: Record<string, unknown>;
+}
+
+type WSListener = (msg: WSMessage) => void;
+type BinaryListener = (frame: ArrayBuffer) => void;
+
+class BackendWS {
+  private ws: WebSocket | null = null;
+  private listeners: WSListener[] = [];
+  private binaryListeners: BinaryListener[] = [];
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDelay = 1000;
+  private readonly maxDelay = 30000;
+  private shouldConnect = false;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  connect() {
+    this.shouldConnect = true;
+    this._connect();
   }
 
-  async login(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
-    return data;
-  }
+  private _connect() {
+    const token = localStorage.getItem('hc_token');
+    if (!token || !this.shouldConnect) return;
 
-  async logout() {
-    this.unsubscribeAll();
-    const { error } = await supabase.auth.signOut();
-    if (error) throw new Error(error.message);
-  }
+    const isAbsolute = BACKEND.startsWith('http');
+    const wsBase = isAbsolute
+      ? BACKEND.replace(/^http/, 'ws')
+      : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/backend-api`;
 
-  async getSession() {
-    const { data } = await supabase.auth.getSession();
-    return data.session;
-  }
+    const url = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 
-  async getUser() {
-    const { data } = await supabase.auth.getUser();
-    return data.user;
-  }
-
-  // ─── Device Registration ───────────────────────────
-
-  private async registerDashboardDevice(userId: string) {
-    // Check if user already has devices → determines OWNER or CLIENT
-    const { data: existingDevices } = await supabase
-      .from('devices')
-      .select('id')
-      .eq('user_id', userId);
-
-    const role = (!existingDevices || existingDevices.length === 0) ? 'OWNER' : 'CLIENT';
-
-    const { error } = await supabase.from('devices').upsert({
-      user_id: userId,
-      device_id: `dashboard-${userId.substring(0, 8)}`,
-      device_name: 'Web Dashboard',
-      model: 'Browser',
-      os_version: navigator.userAgent.substring(0, 50),
-      manufacturer: 'Web',
-      role,
-      status: 'ONLINE',
-      last_seen: new Date().toISOString(),
-    }, { onConflict: 'user_id,device_id' });
-
-    if (error) console.error('Failed to register dashboard device:', error);
-  }
-
-  // ─── Devices ───────────────────────────────────────
-
-  async getDevices(): Promise<Device[]> {
-    const user = await this.getUser();
-    if (!user) return [];
-
-    const { data, error } = await supabase
-      .from('devices')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true });
-
-    if (error) throw new Error(error.message);
-    return (data || []) as Device[];
-  }
-
-  async updateDeviceStatus(deviceId: string, status: 'ONLINE' | 'OFFLINE') {
-    const { error } = await supabase
-      .from('devices')
-      .update({ status, last_seen: new Date().toISOString() })
-      .eq('id', deviceId);
-
-    if (error) throw new Error(error.message);
-  }
-
-  async removeDevice(deviceId: string) {
-    const { error } = await supabase
-      .from('devices')
-      .delete()
-      .eq('id', deviceId);
-
-    if (error) throw new Error(error.message);
-  }
-
-  async createPairingCode(): Promise<PairingCode> {
-    const user = await this.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    await supabase
-      .from('device_pairing_codes')
-      .delete()
-      .eq('owner_user_id', user.id)
-      .is('used_at', null);
-
-    let code: string | null = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const candidate = Math.floor(100000 + Math.random() * 900000).toString();
-      const { data: existing } = await supabase
-        .from('device_pairing_codes')
-        .select('id')
-        .eq('code', candidate)
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle();
-      if (!existing) { code = candidate; break; }
+    try {
+      this.ws = new WebSocket(url);
+      this.ws.binaryType = 'arraybuffer';
+    } catch {
+      this._scheduleReconnect();
+      return;
     }
-    if (!code) throw new Error('Could not generate a unique pairing code, try again');
 
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    this.ws.onopen = () => {
+      console.log('[WS] Connected');
+      this.reconnectDelay = 1000;
+      this._startHeartbeat();
+    };
 
-    const { data, error } = await supabase
-      .from('device_pairing_codes')
-      .insert({ owner_user_id: user.id, code, expires_at: expiresAt })
-      .select()
-      .single();
+    this.ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        this.binaryListeners.forEach((l) => l(e.data as ArrayBuffer));
+      } else {
+        try {
+          const msg = JSON.parse(e.data as string) as WSMessage;
+          this.listeners.forEach((l) => l(msg));
+        } catch {}
+      }
+    };
 
-    if (error) throw new Error(error.message);
-    return data as PairingCode;
+    this.ws.onclose = () => {
+      this._stopHeartbeat();
+      if (this.shouldConnect) this._scheduleReconnect();
+    };
+
+    this.ws.onerror = () => { this.ws?.close(); };
   }
 
-  // ─── Commands ──────────────────────────────────────
-
-  async sendCommand(
-    deviceId: string,
-    type: string,
-    payload: Record<string, unknown> = {}
-  ): Promise<Command> {
-    const user = await this.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    const { data, error } = await supabase
-      .from('commands')
-      .insert({
-        device_id: deviceId,
-        user_id: user.id,
-        type,
-        payload,
-        status: 'PENDING',
-      })
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data as Command;
+  private _scheduleReconnect() {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxDelay);
+      this._connect();
+    }, this.reconnectDelay);
   }
 
-  async getCommandHistory(deviceId: string, limit = 20): Promise<Command[]> {
-    const { data, error } = await supabase
-      .from('commands')
-      .select('*')
-      .eq('device_id', deviceId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw new Error(error.message);
-    return (data || []) as Command[];
+  private _startHeartbeat() {
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'HEARTBEAT', payload: { timestamp: Date.now() } }));
+      }
+    }, 12000);
   }
 
-  // ─── Realtime Subscriptions ────────────────────────
-
-  subscribeToDevices(
-    userId: string,
-    onChange: (devices: Device[]) => void
-  ) {
-    this.deviceChannel = supabase
-      .channel('devices-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'devices',
-          filter: `user_id=eq.${userId}`,
-        },
-        async () => {
-          // Re-fetch all devices on any change
-          const devices = await this.getDevices();
-          onChange(devices);
-        }
-      )
-      .subscribe();
+  private _stopHeartbeat() {
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
   }
 
-  subscribeToCommands(
-    userId: string,
-    onCommand: (command: Command) => void
-  ) {
-    this.commandChannel = supabase
-      .channel('commands-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'commands',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          onCommand(payload.new as Command);
-        }
-      )
-      .subscribe();
+  send(msg: WSMessage) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
 
-  // ─── Screen Streaming ─────────────────────────────
-
-  subscribeToScreenStream(
-    deviceId: string,
-    onFrame: (frameData: string) => void
-  ) {
-    this.screenChannel = supabase
-      .channel(`screen-${deviceId}`)
-      .on('broadcast', { event: 'screen-frame' }, (payload) => {
-        if (payload.payload && typeof payload.payload.frame === 'string') {
-          onFrame(payload.payload.frame);
-        }
-      })
-      .subscribe();
+  onMessage(listener: WSListener): () => void {
+    this.listeners.push(listener);
+    return () => { this.listeners = this.listeners.filter((l) => l !== listener); };
   }
 
-  unsubscribeFromScreenStream() {
-    if (this.screenChannel) {
-      supabase.removeChannel(this.screenChannel);
-      this.screenChannel = null;
-    }
+  onBinaryFrame(listener: BinaryListener): () => void {
+    this.binaryListeners.push(listener);
+    return () => { this.binaryListeners = this.binaryListeners.filter((l) => l !== listener); };
   }
 
-  unsubscribeAll() {
-    if (this.deviceChannel) {
-      supabase.removeChannel(this.deviceChannel);
-      this.deviceChannel = null;
-    }
-    if (this.commandChannel) {
-      supabase.removeChannel(this.commandChannel);
-      this.commandChannel = null;
-    }
-    this.unsubscribeFromScreenStream();
-  }
-
-  // ─── Logs ──────────────────────────────────────────
-
-  async getLogs(deviceId: string, limit = 50) {
-    const { data, error } = await supabase
-      .from('logs')
-      .select('*')
-      .eq('device_id', deviceId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw new Error(error.message);
-    return data || [];
-  }
-
-  async addLog(
-    deviceId: string | null,
-    message: string,
-    level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' = 'INFO'
-  ) {
-    const user = await this.getUser();
-    if (!user) return;
-
-    await supabase.from('logs').insert({
-      device_id: deviceId,
-      user_id: user.id,
-      message,
-      level,
-    });
+  disconnect() {
+    this.shouldConnect = false;
+    this._stopHeartbeat();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.ws?.close();
+    this.ws = null;
   }
 }
 
-export const api = new SupabaseService();
+export const wsClient = new BackendWS();
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+interface AuthResult {
+  token: string;
+  userId: string;
+  deviceId: string;
+  role: string;
+}
+
+// ─── Backend REST + WebSocket service (replaces Supabase) ─────────────────────
+
+class BackendService {
+
+  async register(email: string, password: string): Promise<void> {
+    const deviceId = `dashboard-${this._uid()}`;
+    const result = await apiFetch<AuthResult>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email, password,
+        device: {
+          deviceId, deviceName: 'Web Dashboard', model: 'Browser',
+          osVersion: navigator.userAgent.substring(0, 80),
+          sdkVersion: 0, manufacturer: 'Web',
+        },
+      }),
+    });
+    this._saveSession(email, result);
+    wsClient.connect();
+  }
+
+  async login(email: string, password: string): Promise<void> {
+    const stored = localStorage.getItem('hc_deviceId') || `dashboard-${this._uid()}`;
+    const result = await apiFetch<AuthResult>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email, password,
+        device: {
+          deviceId: stored, deviceName: 'Web Dashboard', model: 'Browser',
+          osVersion: navigator.userAgent.substring(0, 80),
+          sdkVersion: 0, manufacturer: 'Web',
+        },
+      }),
+    });
+    this._saveSession(email, result);
+    wsClient.connect();
+  }
+
+  async logout(): Promise<void> {
+    wsClient.disconnect();
+    ['hc_token','hc_userId','hc_deviceId','hc_role','hc_email'].forEach((k) => localStorage.removeItem(k));
+  }
+
+  isLoggedIn(): boolean { return !!localStorage.getItem('hc_token'); }
+  getUserId(): string | null { return localStorage.getItem('hc_userId'); }
+  getEmail(): string | null { return localStorage.getItem('hc_email'); }
+  getRole(): string | null { return localStorage.getItem('hc_role'); }
+
+  // ─── Devices ──────────────────────────────────────────────────────────────
+
+  async getDevices(): Promise<Device[]> {
+    const data = await apiFetch<{ devices: Device[] }>('/api/devices');
+    return data.devices || [];
+  }
+
+  async removeDevice(deviceId: string): Promise<void> {
+    await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+  }
+
+  // ─── Commands ─────────────────────────────────────────────────────────────
+
+  async sendCommand(deviceId: string, type: string, payload: Record<string, unknown> = {}): Promise<{ commandId: string }> {
+    const data = await apiFetch<{ success: boolean; commandId: string }>(
+      `/api/devices/${encodeURIComponent(deviceId)}/command`,
+      { method: 'POST', body: JSON.stringify({ type, payload }) }
+    );
+    return { commandId: data.commandId };
+  }
+
+  // ─── Pairing ──────────────────────────────────────────────────────────────
+
+  async createPairingCode(): Promise<PairingCode> {
+    const userId = this.getUserId();
+    if (!userId) throw new Error('Not authenticated');
+    return apiFetch<PairingCode>('/api/pairing/generate', {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    });
+  }
+
+  // ─── Real-time subscriptions (via WebSocket) ──────────────────────────────
+
+  subscribeToDevices(_userId: string, callback: (devices: Device[]) => void): () => void {
+    const unsub = wsClient.onMessage((msg) => {
+      if (['DEVICE_STATUS_UPDATE','REGISTERED','HEARTBEAT','COMMAND_RESULT'].includes(msg.type)) {
+        this.getDevices().then(callback).catch(() => {});
+      }
+    });
+    return unsub;
+  }
+
+  subscribeToCommands(_deviceId: string, callback: (result: Command) => void): () => void {
+    return wsClient.onMessage((msg) => {
+      if (msg.type === 'COMMAND_RESULT' && msg.payload) {
+        callback(msg.payload as unknown as Command);
+      }
+    });
+  }
+
+  subscribeToScreenStream(callback: (frame: ArrayBuffer) => void): () => void {
+    return wsClient.onBinaryFrame(callback);
+  }
+
+  async getLogs(_deviceId: string): Promise<unknown[]> { return []; }
+  async addLog(_deviceId: string | null, _msg: string, _level?: string): Promise<void> {}
+  unsubscribeAll(): void {}
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private _saveSession(email: string, result: AuthResult): void {
+    localStorage.setItem('hc_token', result.token);
+    localStorage.setItem('hc_userId', result.userId);
+    localStorage.setItem('hc_deviceId', result.deviceId);
+    localStorage.setItem('hc_role', result.role);
+    localStorage.setItem('hc_email', email);
+  }
+
+  private _uid(): string { return Math.random().toString(36).slice(2, 10); }
+}
+
+export const api = new BackendService();

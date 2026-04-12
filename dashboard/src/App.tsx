@@ -8,13 +8,11 @@ import {
   FileText, Image, Package, RefreshCw, Search, Home, ArrowLeft,
   Terminal, Settings, Layers, Download, Eye,
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { api } from './services/api';
+import { api, wsClient } from './services/api';
 import type {
   Device, Command, ControlMode, LogEntry, PairingCode, AppNotification,
   FileInfo, AppInfo, DeviceInfo, StorageInfo, DashTab,
 } from './types';
-import type { Session } from '@supabase/supabase-js';
 import './App.css';
 
 function LoginPage({ onLogin }: { onLogin: () => void }) {
@@ -343,7 +341,7 @@ function ScreenViewer({
   );
 }
 
-function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
+function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [controlMode, setControlMode] = useState<ControlMode>('HYBRID');
@@ -374,8 +372,8 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   const [latestScreenshot, setLatestScreenshot] = useState<string | null>(null);
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
 
-  const userEmail = session.user.email || 'User';
-  const userId = session.user.id;
+  const userEmail = api.getEmail() || 'User';
+  const userId = api.getUserId() || '';
   const onlineCount = devices.filter(d => d.status === 'ONLINE').length;
   const clientDevices = devices.filter(d => d.role === 'CLIENT');
   const isDeviceOnline = selectedDevice?.status === 'ONLINE';
@@ -492,20 +490,22 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
   useEffect(() => {
     if (!selectedDevice) return;
-    api.subscribeToScreenStream(selectedDevice.id, (frame: string) => {
-      setLatestFrame(frame);
+    const unsub = api.subscribeToScreenStream((frame: ArrayBuffer) => {
+      const blob = new Blob([frame], { type: 'image/jpeg' });
+      const url = URL.createObjectURL(blob);
+      setLatestFrame((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
     });
-    return () => api.unsubscribeFromScreenStream();
-  }, [selectedDevice?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { unsub(); };
+  }, [selectedDevice?.device_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendCommand = async (type: string, payload: Record<string, unknown> = {}) => {
     if (!selectedDevice) { addLog('error', 'No device selected'); return; }
     setLoading(true);
     addLog('command', `Sending ${type} to ${selectedDevice.device_name}`);
     try {
-      const result = await api.sendCommand(selectedDevice.id, type, payload);
-      setPendingCommands(prev => new Set([...prev, result.id]));
-      addLog('info', `Command queued: ${type} (ID: ${result.id.substring(0, 8)})`);
+      const result = await api.sendCommand(selectedDevice.device_id, type, payload);
+      setPendingCommands(prev => new Set([...prev, result.commandId]));
+      addLog('info', `Command queued: ${type} (ID: ${result.commandId?.substring(0, 8) ?? '?'})`);
     } catch (err) {
       addLog('error', `Command failed: ${err instanceof Error ? err.message : 'Unknown'}`);
     } finally {
@@ -752,7 +752,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
                 </div>
                 <div className="screen-display-area">
                   {latestFrame ? (
-                    <img src={`data:image/jpeg;base64,${latestFrame}`}
+                    <img src={latestFrame}
                       alt="Live Screen" className="screen-frame-full"
                       onClick={e => {
                         const rect = e.currentTarget.getBoundingClientRect();
@@ -782,12 +782,12 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
                   <div className="card-header"><span className="card-title">Screenshot</span></div>
                   {latestScreenshot ? (
                     <div>
-                      <img src={`data:image/jpeg;base64,${latestScreenshot}`}
+                      <img src={latestScreenshot}
                         alt="Screenshot" style={{ width: '100%', borderRadius: 8 }} />
                       <button className="btn-primary" style={{ width: '100%', marginTop: 8 }}
                         onClick={() => {
                           const a = document.createElement('a');
-                          a.href = `data:image/jpeg;base64,${latestScreenshot}`;
+                          a.href = latestScreenshot!;
                           a.download = `screenshot-${Date.now()}.jpg`;
                           a.click();
                         }}>

@@ -7,18 +7,29 @@ const router = Router();
 
 router.use(authMiddleware);
 
+function toSnakeCase(device: ReturnType<typeof DeviceRegistry.getDevice>) {
+  if (!device) return null;
+  return {
+    id: device.deviceId,
+    device_id: device.deviceId,
+    user_id: device.userId,
+    device_name: device.deviceName,
+    model: device.model,
+    os_version: device.osVersion,
+    manufacturer: device.manufacturer,
+    role: device.role,
+    status: WSServer.isDeviceConnected(device.deviceId) ? 'ONLINE' : 'OFFLINE',
+    last_seen: new Date(device.lastHeartbeat || 0).toISOString(),
+    created_at: device.registeredAt.toISOString(),
+  };
+}
+
 // Get all devices for the authenticated user
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const userId = req.user!.userId;
+  await DeviceRegistry.loadDevicesFromDB(userId);
   const devices = DeviceRegistry.getUserDevices(userId);
-
-  const devicesWithStatus = devices.map((device) => ({
-    ...device,
-    isConnected: WSServer.isDeviceConnected(device.deviceId),
-    status: WSServer.isDeviceConnected(device.deviceId) ? 'online' : 'offline',
-  }));
-
-  res.json({ devices: devicesWithStatus });
+  res.json({ devices: devices.map((d) => toSnakeCase(d)).filter(Boolean) });
 });
 
 // Get specific device

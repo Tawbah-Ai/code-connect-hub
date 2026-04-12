@@ -53,8 +53,12 @@ export class WSServer {
 
         console.log(`[WSServer] Device connected: ${payload.deviceId}`);
 
-        ws.on('message', (data) => {
-          this.handleMessage(authSocket, data.toString());
+        ws.on('message', (data, isBinary) => {
+          if (isBinary) {
+            this.handleBinaryFrame(authSocket, data as Buffer);
+          } else {
+            this.handleMessage(authSocket, data.toString());
+          }
         });
 
         ws.on('close', () => {
@@ -197,6 +201,25 @@ export class WSServer {
     });
 
     console.log(`[WSServer] Command routed: ${commandPayload?.type} -> ${targetDeviceId}`);
+  }
+
+  private handleBinaryFrame(socket: AuthenticatedSocket, data: Buffer): void {
+    // Relay raw binary screen frame from Android device to the dashboard (owner)
+    const ownerDevice = DeviceRegistry.getOwnerDevice(socket.userId);
+    if (ownerDevice) {
+      const ownerSocket = connectedSockets.get(ownerDevice.deviceId);
+      if (ownerSocket && ownerSocket.ws.readyState === WebSocket.OPEN) {
+        ownerSocket.ws.send(data, { binary: true });
+      }
+    }
+    // Also relay to all dashboard sockets for this user
+    for (const [, sock] of connectedSockets) {
+      if (sock.userId === socket.userId && sock.deviceId !== socket.deviceId) {
+        if (sock.ws.readyState === WebSocket.OPEN) {
+          sock.ws.send(data, { binary: true });
+        }
+      }
+    }
   }
 
   private handleCommandResult(socket: AuthenticatedSocket, message: WSMessage): void {

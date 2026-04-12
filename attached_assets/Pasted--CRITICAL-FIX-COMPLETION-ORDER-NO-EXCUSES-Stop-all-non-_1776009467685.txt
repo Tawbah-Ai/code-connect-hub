@@ -1,0 +1,184 @@
+## 🚨 CRITICAL FIX & COMPLETION ORDER — NO EXCUSES
+
+Stop all non-essential work. Fix the system to be **fully functional in real-world usage**.
+
+---
+
+# 🎯 CURRENT PROBLEMS (MUST BE FIXED)
+
+You must address ALL of the following issues:
+
+---
+
+## 1. CONNECTION DROPS (CRITICAL)
+
+Problem:
+
+* App disconnects when user switches apps
+
+Required Fix:
+
+* Implement **Foreground Service (persistent)**
+* Add **WebSocket auto-reconnect with exponential backoff**
+* Add **heartbeat (ping/pong every 10–15s)**
+* Handle Android lifecycle:
+
+  * onPause / onResume
+  * onStop / onStart
+
+Expected Result:
+✔ Connection stays alive in background
+✔ Device remains ONLINE even when app is minimized
+
+---
+
+## 2. LIVE DATA NOT WORKING
+
+Problem:
+
+* Files / storage loading forever
+* No real data returned
+
+Required Fix:
+
+* Replace all placeholders with **real Android APIs**:
+
+  * MediaStore (files)
+  * Storage Access Framework
+* Ensure permissions:
+
+  * READ_EXTERNAL_STORAGE / MANAGE_EXTERNAL_STORAGE (if needed)
+
+Expected Result:
+✔ File list loads instantly
+✔ Real device storage is visible
+
+---
+
+## 3. SCREEN STREAM NOT WORKING (CRITICAL)
+
+Problem:
+
+* No live screen viewing
+
+Required Implementation:
+
+* Use **MediaProjection API**
+* Create:
+
+  * Screen capture session
+  * Frame encoder (H264 or JPEG stream)
+  * Real-time transport (WebSocket or WebRTC)
+
+Expected Result:
+✔ Continuous live screen feed (NOT static screenshots)
+✔ Visible in dashboard in real-time
+
+---
+
+## 4. REMOTE CONTROL NOT WORKING
+
+Required:
+
+* Implement via:
+
+  * Accessibility Service
+
+Features:
+
+* Tap
+* Swipe
+* Text input
+* Navigation
+
+Expected Result:
+✔ Actions from dashboard affect real device instantly
+
+---
+
+## 5. PERMISSIONS FLOW (MANDATORY)
+
+User must be prompted clearly for:
+
+* Accessibility Service
+* Screen Capture permission
+* Storage access
+* Battery optimization disable
+
+Add onboarding screens explaining each permission.
+
+Expected Result:
+✔ User understands and enables all required permissions
+
+---
+
+## 6. REAL-TIME SYNC
+
+Required:
+
+* Use Supabase Realtime OR WebSocket (one consistent system)
+* No polling
+
+Expected:
+✔ Commands delivered < 2 seconds
+✔ Status updates instantly
+
+---
+
+## 7. CSP ERROR FIX (DASHBOARD)
+
+Error:
+Content Security Policy blocks eval
+
+Fix:
+
+* Remove:
+
+  * eval()
+  * new Function()
+  * string-based setTimeout
+
+* If using Vite dev tools:
+
+  * disable eval-based plugins
+
+DO NOT enable unsafe-eval in production
+
+---
+
+# 📦 FINAL REQUIREMENTS
+
+System must achieve:
+
+✔ Stable connection (no disconnect on background)
+✔ Real file access working
+✔ Live screen streaming working
+✔ Remote control working
+✔ Permissions fully handled
+✔ Real-time communication stable
+
+---
+
+# ❗ STRICT RULE
+
+If any feature is not implemented:
+
+* State clearly what is missing
+* Do NOT claim system is complete
+
+---
+
+# 🎯 FINAL GOAL
+
+> Full live Android device control:
+
+* View screen in real-time
+* Control device remotely
+* Access files and system data
+* No fake data, no simulation
+
+---
+
+## 🚀 START FIXING NOW
+
+Focus on execution, not explanation.

@@ -1,14 +1,10 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-import { User, Device, DeviceRole, DeviceStatus, AuthPayload } from '../types';
+import { query } from '../db/database';
+import { DeviceRole, DeviceStatus, AuthPayload } from '../types';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hybrid-control-secret-key-change-in-production';
 const TOKEN_EXPIRY = '30d';
-
-// In-memory stores (replace with database in production)
-const users: Map<string, User> = new Map();
-const usersByEmail: Map<string, User> = new Map();
 
 export class AuthService {
   static async register(
@@ -23,45 +19,40 @@ export class AuthService {
       manufacturer: string;
     }
   ): Promise<{ token: string; userId: string; deviceId: string; role: DeviceRole }> {
-    if (usersByEmail.has(email)) {
-      throw new Error('Email already registered');
-    }
+    const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existing.rows.length > 0) throw new Error('Email already registered');
 
-    const userId = uuidv4();
     const passwordHash = await bcrypt.hash(password, 10);
+    const userResult = await query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id',
+      [email, passwordHash]
+    );
+    const userId: string = userResult.rows[0].id;
 
-    const user: User = {
-      id: userId,
-      email,
-      passwordHash,
-      createdAt: new Date(),
-    };
+    const countResult = await query('SELECT COUNT(*) FROM devices WHERE user_id = $1', [userId]);
+    const role = parseInt(countResult.rows[0].count) === 0 ? DeviceRole.OWNER : DeviceRole.CLIENT;
 
-    users.set(userId, user);
-    usersByEmail.set(email, user);
+    await query(
+      `INSERT INTO devices (device_id, user_id, device_name, model, os_version, sdk_version, manufacturer, role, status, last_heartbeat)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (device_id) DO UPDATE SET
+         user_id = EXCLUDED.user_id, device_name = EXCLUDED.device_name,
+         model = EXCLUDED.model, os_version = EXCLUDED.os_version,
+         sdk_version = EXCLUDED.sdk_version, manufacturer = EXCLUDED.manufacturer`,
+      [deviceInfo.deviceId, userId, deviceInfo.deviceName, deviceInfo.model,
+       deviceInfo.osVersion, deviceInfo.sdkVersion, deviceInfo.manufacturer,
+       role, DeviceStatus.OFFLINE, Date.now()]
+    );
 
-    // First device is always OWNER
     const { DeviceRegistry } = await import('../websocket/deviceRegistry');
-    const role = DeviceRegistry.getUserDeviceCount(userId) === 0 ? DeviceRole.OWNER : DeviceRole.CLIENT;
-
-    const device: Device = {
-      deviceId: deviceInfo.deviceId,
-      userId,
-      deviceName: deviceInfo.deviceName,
-      model: deviceInfo.model,
-      osVersion: deviceInfo.osVersion,
-      sdkVersion: deviceInfo.sdkVersion,
-      manufacturer: deviceInfo.manufacturer,
-      role,
-      status: DeviceStatus.OFFLINE,
-      lastHeartbeat: Date.now(),
-      registeredAt: new Date(),
-    };
-
-    DeviceRegistry.registerDevice(device);
+    DeviceRegistry.loadOrUpdate({
+      deviceId: deviceInfo.deviceId, userId, deviceName: deviceInfo.deviceName,
+      model: deviceInfo.model, osVersion: deviceInfo.osVersion,
+      sdkVersion: deviceInfo.sdkVersion, manufacturer: deviceInfo.manufacturer,
+      role, status: DeviceStatus.OFFLINE, lastHeartbeat: Date.now(), registeredAt: new Date(),
+    });
 
     const token = AuthService.generateToken({ userId, email, deviceId: deviceInfo.deviceId });
-
     return { token, userId, deviceId: deviceInfo.deviceId, role };
   }
 
@@ -77,48 +68,40 @@ export class AuthService {
       manufacturer: string;
     }
   ): Promise<{ token: string; userId: string; deviceId: string; role: DeviceRole }> {
-    const user = usersByEmail.get(email);
-    if (!user) {
-      throw new Error('Invalid email or password');
-    }
+    const userResult = await query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) throw new Error('Invalid email or password');
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      throw new Error('Invalid email or password');
+    const user = userResult.rows[0];
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) throw new Error('Invalid email or password');
+
+    const existingDevice = await query('SELECT * FROM devices WHERE device_id = $1', [deviceInfo.deviceId]);
+    let role: DeviceRole;
+
+    if (existingDevice.rows.length === 0) {
+      const countResult = await query('SELECT COUNT(*) FROM devices WHERE user_id = $1', [user.id]);
+      role = parseInt(countResult.rows[0].count) === 0 ? DeviceRole.OWNER : DeviceRole.CLIENT;
+      await query(
+        `INSERT INTO devices (device_id, user_id, device_name, model, os_version, sdk_version, manufacturer, role, status, last_heartbeat)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [deviceInfo.deviceId, user.id, deviceInfo.deviceName, deviceInfo.model,
+         deviceInfo.osVersion, deviceInfo.sdkVersion, deviceInfo.manufacturer,
+         role, DeviceStatus.OFFLINE, Date.now()]
+      );
+    } else {
+      role = existingDevice.rows[0].role as DeviceRole;
     }
 
     const { DeviceRegistry } = await import('../websocket/deviceRegistry');
-
-    let device = DeviceRegistry.getDevice(deviceInfo.deviceId);
-    if (!device) {
-      const role = DeviceRegistry.getUserDeviceCount(user.id) === 0
-        ? DeviceRole.OWNER
-        : DeviceRole.CLIENT;
-
-      device = {
-        deviceId: deviceInfo.deviceId,
-        userId: user.id,
-        deviceName: deviceInfo.deviceName,
-        model: deviceInfo.model,
-        osVersion: deviceInfo.osVersion,
-        sdkVersion: deviceInfo.sdkVersion,
-        manufacturer: deviceInfo.manufacturer,
-        role,
-        status: DeviceStatus.OFFLINE,
-        lastHeartbeat: Date.now(),
-        registeredAt: new Date(),
-      };
-
-      DeviceRegistry.registerDevice(device);
-    }
-
-    const token = AuthService.generateToken({
-      userId: user.id,
-      email,
-      deviceId: deviceInfo.deviceId,
+    DeviceRegistry.loadOrUpdate({
+      deviceId: deviceInfo.deviceId, userId: user.id, deviceName: deviceInfo.deviceName,
+      model: deviceInfo.model, osVersion: deviceInfo.osVersion,
+      sdkVersion: deviceInfo.sdkVersion, manufacturer: deviceInfo.manufacturer,
+      role, status: DeviceStatus.OFFLINE, lastHeartbeat: Date.now(), registeredAt: new Date(),
     });
 
-    return { token, userId: user.id, deviceId: deviceInfo.deviceId, role: device.role };
+    const token = AuthService.generateToken({ userId: user.id, email, deviceId: deviceInfo.deviceId });
+    return { token, userId: user.id, deviceId: deviceInfo.deviceId, role };
   }
 
   static generateToken(payload: AuthPayload): string {
@@ -127,13 +110,5 @@ export class AuthService {
 
   static verifyToken(token: string): AuthPayload {
     return jwt.verify(token, JWT_SECRET) as AuthPayload;
-  }
-
-  static getUser(userId: string): User | undefined {
-    return users.get(userId);
-  }
-
-  static getUserByEmail(email: string): User | undefined {
-    return usersByEmail.get(email);
   }
 }
