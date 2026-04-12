@@ -20,6 +20,9 @@ import {
   AppWindow,
   Tv,
   X,
+  Cpu,
+  Clock3,
+  Radio,
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { api } from './services/api';
@@ -76,6 +79,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
             <input
               className="form-input"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -87,6 +91,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
             <input
               className="form-input"
               type="password"
+              autoComplete={isRegistering ? 'new-password' : 'current-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
@@ -109,11 +114,22 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function ScreenViewer({ device, onClose, onSendCommand }: { device: Device; onClose: () => void; onSendCommand: (type: string, payload?: Record<string, unknown>) => void }) {
+function ScreenViewer({ device, onClose, onSendCommand }: { device: Device; onClose: () => void; onSendCommand: (type: string, payload?: Record<string, unknown>) => void | Promise<void> }) {
   const [frame, setFrame] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [streamStarted, setStreamStarted] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  const startStream = () => {
+    onSendCommand('START_STREAM');
+    setStreamStarted(true);
+  };
+
+  const stopStream = () => {
+    onSendCommand('STOP_STREAM');
+    setStreamStarted(false);
+    setConnected(false);
+  };
 
   useEffect(() => {
     api.subscribeToScreenStream(device.id, (frameData: string) => {
@@ -121,13 +137,10 @@ function ScreenViewer({ device, onClose, onSendCommand }: { device: Device; onCl
       setConnected(true);
     });
 
-    // Auto-start the stream on the Android device
-    onSendCommand('START_STREAM');
-    setStreamStarted(true);
+    startStream();
 
     return () => {
       api.unsubscribeFromScreenStream();
-      // Auto-stop the stream when viewer closes
       onSendCommand('STOP_STREAM');
     };
   }, [device.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -140,10 +153,19 @@ function ScreenViewer({ device, onClose, onSendCommand }: { device: Device; onCl
             <Tv size={16} />
             <span>Live Screen: {device.device_name}</span>
             <span className={`status-dot ${connected ? 'online' : 'offline'}`} />
+            <span className="stream-state">{streamStarted ? 'Streaming' : 'Stopped'}</span>
           </div>
-          <button className="screen-viewer-close" onClick={onClose}>
-            <X size={18} />
-          </button>
+          <div className="screen-viewer-actions">
+            <button className="stream-action" onClick={startStream} disabled={streamStarted}>
+              Start
+            </button>
+            <button className="stream-action danger" onClick={stopStream} disabled={!streamStarted}>
+              Stop
+            </button>
+            <button className="screen-viewer-close" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="screen-viewer-content">
           {frame ? (
@@ -185,6 +207,12 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
 
   const userEmail = session.user.email || 'User';
   const userId = session.user.id;
+  const onlineCount = devices.filter((d) => d.status === 'ONLINE').length;
+  const clientCount = devices.filter((d) => d.role === 'CLIENT').length;
+  const ownerCount = devices.filter((d) => d.role === 'OWNER').length;
+  const lastSeen = selectedDevice?.last_seen
+    ? new Date(selectedDevice.last_seen).toLocaleString()
+    : 'No device selected';
 
   const addLog = useCallback((type: LogEntry['type'], message: string, data?: unknown) => {
     setLogs((prev) => [
@@ -301,13 +329,44 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
           </div>
         </header>
 
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-icon cyan"><Smartphone size={18} /></div>
+            <div>
+              <span>Total Devices</span>
+              <strong>{devices.length}</strong>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon green"><Radio size={18} /></div>
+            <div>
+              <span>Online Now</span>
+              <strong>{onlineCount}</strong>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon purple"><Cpu size={18} /></div>
+            <div>
+              <span>Clients / Owners</span>
+              <strong>{clientCount}/{ownerCount}</strong>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon blue"><Clock3 size={18} /></div>
+            <div>
+              <span>Selected Last Seen</span>
+              <strong className="stat-small">{lastSeen}</strong>
+            </div>
+          </div>
+        </div>
+
         <div className="dashboard-grid">
           {/* Device List */}
           <div className="glass-card">
             <div className="card-header">
               <span className="card-title">Devices</span>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                {devices.filter((d) => d.status === 'ONLINE').length}/{devices.length} online
+                {onlineCount}/{devices.length} online
               </span>
             </div>
             {devices.length === 0 ? (

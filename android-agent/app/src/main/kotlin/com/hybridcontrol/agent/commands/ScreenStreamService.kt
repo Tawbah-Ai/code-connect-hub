@@ -83,9 +83,7 @@ class ScreenStreamService : Service() {
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getMetrics(metrics)
+        val metrics: DisplayMetrics = resources.displayMetrics
 
         // Scale down to max 720 width for bandwidth efficiency
         val scale = minOf(1.0f, MAX_WIDTH.toFloat() / metrics.widthPixels)

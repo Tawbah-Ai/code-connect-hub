@@ -36,6 +36,7 @@ android-agent/local.properties
 android-agent/captures/
 android-agent/.externalNativeBuild/
 android-agent/.cxx/
+.android-sdk/
 
 # TypeScript
 *.tsbuildinfo

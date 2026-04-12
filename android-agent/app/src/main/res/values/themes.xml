@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.HybridControl" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#00BCD4</item>
-        <item name="colorPrimaryVariant">#0097A7</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSecondary">#00E5FF</item>
-        <item name="colorSecondaryVariant">#00B8D4</item>
+        <item name="colorPrimary">#22D3EE</item>
+        <item name="colorPrimaryVariant">#0891B2</item>
+        <item name="colorOnPrimary">#020617</item>
+        <item name="colorSecondary">#60A5FA</item>
+        <item name="colorSecondaryVariant">#2563EB</item>
         <item name="colorOnSecondary">#000000</item>
-        <item name="android:statusBarColor">#0D1117</item>
-        <item name="android:navigationBarColor">#0D1117</item>
-        <item name="android:windowBackground">#0D1117</item>
+        <item name="android:statusBarColor">#050816</item>
+        <item name="android:navigationBarColor">#050816</item>
+        <item name="android:windowBackground">#050816</item>
     </style>
 </resources>

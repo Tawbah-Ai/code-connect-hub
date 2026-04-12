@@ -38,6 +38,12 @@ cd dashboard && npm run build
 - Command Engine: OPEN_APP, TAKE_SCREENSHOT, DEVICE_INFO, file management
 - Touch Engine: Remote tap/swipe/text input via Android Accessibility Service
 - Realtime sync via Supabase Realtime
+- Live screen streaming: Dashboard sends START_STREAM/STOP_STREAM commands and subscribes to Supabase Broadcast frames.
+- 2025 UI refresh: Dashboard now includes operational stats cards, modern glass surfaces, clearer live-stream controls, and Android agent uses updated dark/cyan Material styling.
+
+## Build Output
+- Latest signed APK is exported at `HybridControl-v1.0.0.apk`.
+- Android SDK for local builds is configured via `android-agent/local.properties` with `sdk.dir=/home/runner/workspace/.android-sdk`.
 
 ## Supabase Configuration
 Set the following environment variables for the dashboard:

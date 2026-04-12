@@ -10,7 +10,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="32dp">
+        android:padding="28dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -18,14 +18,14 @@
             android:layout_marginBottom="8dp"
             android:text="HYBRID CONTROL"
             android:textColor="@color/accent_cyan"
-            android:textSize="28sp"
+            android:textSize="30sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="40dp"
+            android:layout_marginBottom="36dp"
             android:text="Login"
             android:textColor="@color/text_secondary"
             android:textSize="16sp" />
@@ -71,8 +71,10 @@
             android:text="Login"
             android:textAllCaps="false"
             android:textSize="16sp"
+            app:cornerRadius="18dp"
             android:backgroundTint="@color/accent_cyan"
-            android:textColor="@color/bg_dark" />
+            android:textColor="@color/bg_dark"
+            xmlns:app="http://schemas.android.com/apk/res-auto" />
 
         <ProgressBar
             android:id="@+id/progressBar"
