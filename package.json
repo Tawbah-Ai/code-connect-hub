@@ -1,0 +1,16 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "A production-grade remote control system for Android devices. A single user account can link multiple devices — the first device becomes the **OWNER** (admin), and subsequent devices become **CLIENTS**. The OWNER can control CLIENT devices using command-based execution or touch-based UI automation.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/pg": "^8.20.0",
+    "pg": "^8.20.0"
+  }
+}

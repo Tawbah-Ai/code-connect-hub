@@ -3,8 +3,10 @@ package com.hybridcontrol.agent.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.widget.Toast
@@ -30,13 +32,25 @@ class MainActivity : AppCompatActivity() {
     private var isAgentRunning = false
     private var activityListener: WebSocketManager.ConnectionListener? = null
 
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            startAgentService()
-        } else {
-            Toast.makeText(this, "Notification permission required", Toast.LENGTH_SHORT).show()
+    private val multiplePermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val denied = permissions.filter { !it.value }.keys
+        if (denied.isNotEmpty()) {
+            Toast.makeText(
+                this,
+                "بعض الصلاحيات مرفوضة. قد تعمل بعض الميزات بشكل محدود.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        checkSpecialPermissions()
+    }
+
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "إذن الظهور فوق التطبيقات غير ممنوح.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -54,7 +68,7 @@ class MainActivity : AppCompatActivity() {
 
         setupUI()
         setupWebSocketListener()
-        checkPermissions()
+        requestAllPermissions()
     }
 
     private fun setupUI() {
@@ -142,6 +156,104 @@ class MainActivity : AppCompatActivity() {
         HybridControlApp.instance.webSocketManager.addConnectionListener(activityListener!!)
     }
 
+    private fun requestAllPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (!isGranted(Manifest.permission.POST_NOTIFICATIONS))
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            if (!isGranted(Manifest.permission.READ_MEDIA_IMAGES))
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+            if (!isGranted(Manifest.permission.READ_MEDIA_VIDEO))
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_VIDEO)
+            if (!isGranted(Manifest.permission.READ_MEDIA_AUDIO))
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            if (!isGranted(Manifest.permission.READ_EXTERNAL_STORAGE))
+                permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                if (!isGranted(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+                    permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+
+        if (!isGranted(Manifest.permission.CAMERA))
+            permissionsToRequest.add(Manifest.permission.CAMERA)
+
+        if (!isGranted(Manifest.permission.RECORD_AUDIO))
+            permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
+
+        if (permissionsToRequest.isNotEmpty()) {
+            showPermissionRationale(permissionsToRequest)
+        } else {
+            checkSpecialPermissions()
+        }
+    }
+
+    private fun showPermissionRationale(permissions: List<String>) {
+        AlertDialog.Builder(this)
+            .setTitle("الصلاحيات المطلوبة")
+            .setMessage(
+                "يحتاج التطبيق إلى الصلاحيات التالية للعمل بشكل صحيح:\n\n" +
+                "• الكاميرا: للتحكم في الكاميرا عن بُعد\n" +
+                "• الميكروفون: لتسجيل الصوت عن بُعد\n" +
+                "• الملفات والوسائط: للوصول إلى الملفات عن بُعد\n" +
+                "• الإشعارات: لإبقاء الخدمة نشطة\n\n" +
+                "لن تعمل هذه الميزات بدون منح الصلاحيات."
+            )
+            .setPositiveButton("منح الصلاحيات") { _, _ ->
+                multiplePermissionsLauncher.launch(permissions.toTypedArray())
+            }
+            .setNegativeButton("تخطي", null)
+            .show()
+    }
+
+    private fun checkSpecialPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                AlertDialog.Builder(this)
+                    .setTitle("إذن الظهور فوق التطبيقات")
+                    .setMessage("يحتاج التطبيق إلى إذن الظهور فوق التطبيقات الأخرى لتوفير وظائف التحكم بالشاشة.")
+                    .setPositiveButton("فتح الإعدادات") { _, _ ->
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:$packageName")
+                        )
+                        overlayPermissionLauncher.launch(intent)
+                    }
+                    .setNegativeButton("تخطي", null)
+                    .show()
+            } else {
+                checkBatteryOptimization()
+            }
+        } else {
+            checkBatteryOptimization()
+        }
+    }
+
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                AlertDialog.Builder(this)
+                    .setTitle("تحسين استهلاك البطارية")
+                    .setMessage("لضمان استمرار التطبيق في العمل بالخلفية، من المستحسن إيقاف تحسين البطارية لهذا التطبيق.")
+                    .setPositiveButton("الإعدادات") { _, _ ->
+                        val intent = Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:$packageName")
+                        )
+                        startActivity(intent)
+                    }
+                    .setNegativeButton("تخطي", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun isGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
     private fun updateAgentStatus(connected: Boolean) {
         isAgentRunning = connected
         binding.tvConnectionStatus.text = if (connected) "Connected" else "Disconnected"
@@ -182,26 +294,12 @@ class MainActivity : AppCompatActivity() {
         binding.tvLog.text = newLog.lines().take(50).joinToString("\n")
     }
 
-    private fun checkPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-        if (permissions.isNotEmpty()) {
-            requestPermissions(permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
-        }
-    }
-
     private fun requestNotificationPermissionAndStart() {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            multiplePermissionsLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
         } else {
             startAgentService()
         }
@@ -244,9 +342,5 @@ class MainActivity : AppCompatActivity() {
             HybridControlApp.instance.webSocketManager.removeConnectionListener(it)
         }
         activityListener = null
-    }
-
-    companion object {
-        private const val PERMISSION_REQUEST_CODE = 100
     }
 }

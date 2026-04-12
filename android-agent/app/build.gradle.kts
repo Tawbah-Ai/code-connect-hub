@@ -17,8 +17,10 @@ android {
         // Read Supabase credentials from local.properties (gitignored)
         val supabaseUrl: String = project.findProperty("SUPABASE_URL") as? String ?: ""
         val supabaseAnonKey: String = project.findProperty("SUPABASE_ANON_KEY") as? String ?: ""
+        val backendUrl: String = project.findProperty("BACKEND_URL") as? String ?: ""
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
     }
 
     signingConfigs {

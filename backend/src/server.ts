@@ -6,10 +6,11 @@ import cors from 'cors';
 import http from 'http';
 import authRoutes from './routes/authRoutes';
 import deviceRoutes from './routes/deviceRoutes';
+import pairingRoutes from './routes/pairingRoutes';
 import { WSServer } from './websocket/wsServer';
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middleware
 app.use(cors({
@@ -27,6 +28,7 @@ app.get('/health', (_req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/devices', deviceRoutes);
+app.use('/api/pairing', pairingRoutes);
 
 // API docs
 app.get('/api', (_req, res) => {

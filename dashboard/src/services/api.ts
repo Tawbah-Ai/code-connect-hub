@@ -105,26 +105,18 @@ class SupabaseService {
     const user = await this.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const response = await fetch('/backend-api/api/pairing/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    });
 
-    const { data, error } = await supabase
-      .from('device_pairing_codes')
-      .insert({
-        owner_user_id: user.id,
-        code,
-        expires_at: expiresAt,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === '42P01' || error.message.toLowerCase().includes('not found')) {
-        throw new Error('Pairing database migration is not installed yet. Run supabase/migrations/002_device_pairing_codes.sql in Supabase SQL Editor, then try again.');
-      }
-      throw new Error(error.message);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to generate pairing code');
     }
-    return data as PairingCode;
+
+    return response.json() as Promise<PairingCode>;
   }
 
   // ─── Commands ──────────────────────────────────────

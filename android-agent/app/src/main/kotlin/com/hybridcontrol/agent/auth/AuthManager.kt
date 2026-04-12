@@ -236,6 +236,56 @@ class AuthManager(private val context: Context) {
         }
 
         val deviceInfo = DeviceUtils.getDeviceInfo(context)
+
+        // Try the backend API first, fall back to Supabase RPC
+        val backendUrl = BuildConfig.BACKEND_URL
+        if (backendUrl.isNotBlank()) {
+            claimViaBackend(pairingCode, deviceInfo)
+        } else {
+            claimViaSupabase(accessToken, pairingCode, deviceInfo)
+        }
+    }
+
+    private suspend fun claimViaBackend(pairingCode: String, deviceInfo: com.hybridcontrol.agent.model.DeviceInfo) {
+        val payload = gson.toJson(mapOf(
+            "code" to pairingCode,
+            "deviceId" to deviceInfo.deviceId,
+            "deviceName" to deviceInfo.deviceName,
+            "model" to deviceInfo.model,
+            "osVersion" to deviceInfo.osVersion,
+            "manufacturer" to deviceInfo.manufacturer
+        ))
+
+        val request = Request.Builder()
+            .url("${BuildConfig.BACKEND_URL}/api/pairing/claim")
+            .addHeader("Content-Type", "application/json")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val body = response.body?.string() ?: throw Exception("Empty pairing response")
+
+        if (!response.isSuccessful) {
+            val errorMap = runCatching { parseJson(body) }.getOrDefault(emptyMap())
+            val errorMsg = errorMap["error"] as? String ?: "Pairing code failed"
+            throw Exception(errorMsg)
+        }
+
+        val parsed = parseJson(body)
+        val deviceUuid = parsed["device_uuid"] as? String
+            ?: throw Exception("Pairing response missing device ID")
+        val ownerUserId = parsed["owner_user_id"] as? String
+            ?: throw Exception("Pairing response missing owner ID")
+
+        prefs.edit()
+            .putString(KEY_USER_ID, ownerUserId)
+            .putString(KEY_ROLE, "CLIENT")
+            .putString(KEY_DEVICE_ID, deviceInfo.deviceId)
+            .putString(KEY_DEVICE_UUID, deviceUuid)
+            .apply()
+    }
+
+    private suspend fun claimViaSupabase(accessToken: String, pairingCode: String, deviceInfo: com.hybridcontrol.agent.model.DeviceInfo) {
         val payload = gson.toJson(mapOf(
             "p_code" to pairingCode,
             "p_device_id" to deviceInfo.deviceId,
@@ -254,8 +304,7 @@ class AuthManager(private val context: Context) {
             .build()
 
         val response = client.newCall(request).execute()
-        val body = response.body?.string()
-            ?: throw Exception("Empty pairing response")
+        val body = response.body?.string() ?: throw Exception("Empty pairing response")
 
         if (!response.isSuccessful) {
             val errorMap = runCatching { parseJson(body) }.getOrDefault(emptyMap())
