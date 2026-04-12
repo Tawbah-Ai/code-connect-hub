@@ -92,8 +92,8 @@ class ScreenCaptureActivity : Activity() {
 
                 ScreenCaptureManager.captureCallback?.invoke(commandId ?: "", true, base64Image)
 
+                if (croppedBitmap !== bitmap) croppedBitmap.recycle()
                 bitmap.recycle()
-                croppedBitmap.recycle()
             } else {
                 ScreenCaptureManager.captureCallback?.invoke(
                     commandId ?: "", false, "Failed to capture image"

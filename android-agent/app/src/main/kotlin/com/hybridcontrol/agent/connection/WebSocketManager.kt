@@ -40,6 +40,7 @@ class WebSocketManager(
     private var commandPollJob: Job? = null
     private var reconnectJob: Job? = null
     private var controlMode = ControlMode.HYBRID
+    private val processingCommandIds = mutableSetOf<String>()
 
     var connectionListener: ConnectionListener? = null
 
@@ -132,6 +133,8 @@ class WebSocketManager(
 
                         for (cmdMap in commands) {
                             val cmdId = cmdMap["id"] as? String ?: continue
+                            // Skip commands already being processed to prevent duplicate execution
+                            if (cmdId in processingCommandIds) continue
                             val cmdType = cmdMap["type"] as? String ?: continue
                             @Suppress("UNCHECKED_CAST")
                             val payload = cmdMap["payload"] as? Map<String, Any>
@@ -143,6 +146,7 @@ class WebSocketManager(
                                 fromDeviceId = cmdMap["user_id"] as? String
                             )
 
+                            processingCommandIds.add(cmdId)
                             connectionListener?.onCommandReceived(command)
                             executeCommand(command, token)
                         }
@@ -158,20 +162,24 @@ class WebSocketManager(
 
     private fun executeCommand(command: RemoteCommand, token: String) {
         scope.launch {
-            val result = when (controlMode) {
-                ControlMode.COMMAND -> commandEngine.execute(command)
-                ControlMode.TOUCH -> touchEngine.execute(command)
-                ControlMode.HYBRID -> {
-                    if (commandEngine.canHandle(command.type)) {
-                        commandEngine.execute(command)
-                    } else {
-                        touchEngine.execute(command)
+            try {
+                val result = when (controlMode) {
+                    ControlMode.COMMAND -> commandEngine.execute(command)
+                    ControlMode.TOUCH -> touchEngine.execute(command)
+                    ControlMode.HYBRID -> {
+                        if (commandEngine.canHandle(command.type)) {
+                            commandEngine.execute(command)
+                        } else {
+                            touchEngine.execute(command)
+                        }
                     }
                 }
-            }
 
-            connectionListener?.onCommandResult(result)
-            updateCommandResult(command.id, result, token)
+                connectionListener?.onCommandResult(result)
+                updateCommandResult(command.id, result, token)
+            } finally {
+                processingCommandIds.remove(command.id)
+            }
         }
     }
 
