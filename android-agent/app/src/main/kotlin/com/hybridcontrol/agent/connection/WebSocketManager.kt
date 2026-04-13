@@ -13,6 +13,7 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
@@ -91,12 +92,19 @@ class WebSocketManager(
 
     private fun openWebSocket(token: String) {
         val backendUrl = BuildConfig.BACKEND_URL.trimEnd('/')
+        if (backendUrl.isBlank()) {
+            val message = "BACKEND_URL is not configured in android-agent/local.properties"
+            Log.e(TAG, message)
+            connectionListeners.forEach { it.onError(message) }
+            return
+        }
         val wsUrl = backendUrl
             .replace("https://", "wss://")
             .replace("http://", "ws://")
+        val encodedToken = URLEncoder.encode(token, "UTF-8")
 
         val request = Request.Builder()
-            .url("$wsUrl/ws?token=${token}")
+            .url("$wsUrl/ws?token=$encodedToken")
             .build()
 
         Log.d(TAG, "Connecting to $wsUrl/ws")

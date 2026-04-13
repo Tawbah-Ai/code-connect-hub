@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "EibulgRYNTmAKJRRAHRVP"
+uri = "file://builds/HybridControl-Android-build-ready.zip"
+type = "unspecified"
+title = "Android Studio build-ready ZIP"
+
+[[outputs]]
+id = "wTU2jH8awCvr0PvJgDZY1"
+uri = "file://FINAL_STATE.md"
+type = "text"
+title = "Final migration state report"

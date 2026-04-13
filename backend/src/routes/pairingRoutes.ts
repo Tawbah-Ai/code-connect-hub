@@ -1,5 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { authMiddleware } from '../middleware/authMiddleware';
+import { query } from '../db/database';
+import { DeviceRegistry } from '../websocket/deviceRegistry';
+import { DeviceRole, DeviceStatus } from '../types';
 
 const router = Router();
 
@@ -13,37 +17,18 @@ interface PairingEntry {
   created_at: string;
 }
 
-const pairingCodes = new Map<string, PairingEntry>();
-
-function purgeExpired() {
-  const now = Date.now();
-  for (const [key, entry] of pairingCodes.entries()) {
-    if (new Date(entry.expires_at).getTime() < now) {
-      pairingCodes.delete(key);
-    }
-  }
-}
-
-router.post('/generate', (req: Request, res: Response) => {
+router.post('/generate', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { userId } = req.body;
-    if (!userId) {
-      res.status(400).json({ error: 'userId is required' });
-      return;
-    }
-
-    purgeExpired();
-
-    for (const [key, entry] of pairingCodes.entries()) {
-      if (entry.owner_user_id === userId && !entry.used_at) {
-        pairingCodes.delete(key);
-      }
-    }
+    const userId = req.user!.userId;
 
     let code = '';
     for (let attempts = 0; attempts < 10; attempts++) {
       const candidate = Math.floor(100000 + Math.random() * 900000).toString();
-      if (!pairingCodes.has(candidate)) {
+      const existing = await query(
+        'SELECT 1 FROM pairing_codes WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()',
+        [candidate]
+      );
+      if (existing.rows.length === 0) {
         code = candidate;
         break;
       }
@@ -56,18 +41,19 @@ router.post('/generate', (req: Request, res: Response) => {
 
     const now = new Date();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const id = uuidv4();
 
-    const entry: PairingEntry = {
-      id: uuidv4(),
-      owner_user_id: userId,
-      code,
-      expires_at: expiresAt.toISOString(),
-      used_at: null,
-      used_by_device_id: null,
-      created_at: now.toISOString(),
-    };
-
-    pairingCodes.set(code, entry);
+    await query(
+      'UPDATE pairing_codes SET used_at = NOW() WHERE owner_user_id = $1 AND used_at IS NULL',
+      [userId]
+    );
+    const result = await query(
+      `INSERT INTO pairing_codes (id, owner_user_id, code, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, owner_user_id, code, expires_at, used_at, used_by_device_id, created_at`,
+      [id, userId, code, expiresAt, now]
+    );
+    const entry = result.rows[0] as PairingEntry;
 
     res.json(entry);
   } catch (err) {
@@ -76,9 +62,9 @@ router.post('/generate', (req: Request, res: Response) => {
   }
 });
 
-router.post('/claim', (req: Request, res: Response) => {
+router.post('/claim', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { code, deviceId } = req.body;
+    const { code, deviceId, deviceName, model, osVersion, sdkVersion, manufacturer } = req.body;
 
     if (!code || !/^\d{6}$/.test(code)) {
       res.status(400).json({ error: 'Pairing code must be 6 digits' });
@@ -89,16 +75,66 @@ router.post('/claim', (req: Request, res: Response) => {
       return;
     }
 
-    purgeExpired();
-
-    const entry = pairingCodes.get(code);
-    if (!entry || entry.used_at || new Date(entry.expires_at).getTime() < Date.now()) {
+    const codeResult = await query(
+      `SELECT id, owner_user_id, code, expires_at, used_at, used_by_device_id, created_at
+       FROM pairing_codes
+       WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [code]
+    );
+    const entry = codeResult.rows[0] as PairingEntry | undefined;
+    if (!entry) {
       res.status(400).json({ error: 'Invalid or expired pairing code' });
       return;
     }
 
-    entry.used_at = new Date().toISOString();
-    entry.used_by_device_id = deviceId;
+    await query(
+      `INSERT INTO devices (
+         device_id, user_id, device_name, model, os_version, sdk_version,
+         manufacturer, role, status, last_heartbeat
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'CLIENT', 'OFFLINE', $8)
+       ON CONFLICT (device_id) DO UPDATE SET
+         user_id = EXCLUDED.user_id,
+         device_name = EXCLUDED.device_name,
+         model = EXCLUDED.model,
+         os_version = EXCLUDED.os_version,
+         sdk_version = EXCLUDED.sdk_version,
+         manufacturer = EXCLUDED.manufacturer,
+         role = 'CLIENT',
+         status = 'OFFLINE',
+         last_heartbeat = EXCLUDED.last_heartbeat`,
+      [
+        deviceId,
+        entry.owner_user_id,
+        deviceName || 'Android Agent',
+        model || 'Android',
+        osVersion || 'Unknown',
+        Number(sdkVersion || 0),
+        manufacturer || 'Unknown',
+        Date.now(),
+      ]
+    );
+
+    await query(
+      'UPDATE pairing_codes SET used_at = NOW(), used_by_device_id = $1 WHERE id = $2',
+      [deviceId, entry.id]
+    );
+
+    DeviceRegistry.loadOrUpdate({
+      deviceId,
+      userId: entry.owner_user_id,
+      deviceName: deviceName || 'Android Agent',
+      model: model || 'Android',
+      osVersion: osVersion || 'Unknown',
+      sdkVersion: Number(sdkVersion || 0),
+      manufacturer: manufacturer || 'Unknown',
+      role: DeviceRole.CLIENT,
+      status: DeviceStatus.OFFLINE,
+      lastHeartbeat: Date.now(),
+      registeredAt: new Date(),
+    });
 
     res.json({
       device_uuid: deviceId,
@@ -112,11 +148,17 @@ router.post('/claim', (req: Request, res: Response) => {
   }
 });
 
-router.get('/check/:code', (req: Request, res: Response) => {
+router.get('/check/:code', async (req: Request, res: Response) => {
   try {
-    purgeExpired();
-    const entry = pairingCodes.get(req.params.code);
-    if (!entry || entry.used_at || new Date(entry.expires_at).getTime() < Date.now()) {
+    const result = await query(
+      `SELECT owner_user_id, expires_at
+       FROM pairing_codes
+       WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()
+       LIMIT 1`,
+      [req.params.code]
+    );
+    const entry = result.rows[0] as Pick<PairingEntry, 'owner_user_id' | 'expires_at'> | undefined;
+    if (!entry) {
       res.json({ valid: false });
       return;
     }

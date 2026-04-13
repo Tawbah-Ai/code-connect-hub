@@ -33,6 +33,13 @@ class AuthManager(private val context: Context) {
     val isLoggedIn: Boolean
         get() = getAccessToken()?.isNotEmpty() == true
 
+    private val backendUrl: String
+        get() {
+            val configured = BuildConfig.BACKEND_URL.trim().trimEnd('/')
+            require(configured.isNotEmpty()) { "BACKEND_URL is not configured in android-agent/local.properties" }
+            return configured
+        }
+
     val userEmail: String?
         get() = prefs.getString(KEY_EMAIL, null)
 
@@ -80,7 +87,7 @@ class AuthManager(private val context: Context) {
             )
 
             val request = Request.Builder()
-                .url("${BuildConfig.BACKEND_URL}/api/auth/login")
+                .url("$backendUrl/api/auth/login")
                 .addHeader("Content-Type", "application/json")
                 .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
@@ -128,7 +135,7 @@ class AuthManager(private val context: Context) {
             )
 
             val request = Request.Builder()
-                .url("${BuildConfig.BACKEND_URL}/api/auth/register")
+                .url("$backendUrl/api/auth/register")
                 .addHeader("Content-Type", "application/json")
                 .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
@@ -173,7 +180,7 @@ class AuthManager(private val context: Context) {
         )
 
         val request = Request.Builder()
-            .url("${BuildConfig.BACKEND_URL}/api/pairing/claim")
+            .url("$backendUrl/api/pairing/claim")
             .addHeader("Content-Type", "application/json")
             .addHeader("Authorization", "Bearer $token")
             .post(body.toRequestBody("application/json".toMediaType()))

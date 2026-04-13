@@ -1,21 +1,30 @@
 # Hybrid Remote Device Control System
 
 ## Overview
-A production-grade remote control platform for Android devices. Users can link multiple devices under one account — an OWNER/admin device can control CLIENT devices via command-based execution or touch-based UI automation.
+A remote control platform for Android devices. Users authenticate through the Express backend, register devices, send commands from the web dashboard, and receive live Android screen frames over WebSocket binary messages.
 
 ## Architecture
 Four main components:
-1. **Android Agent** (`/android-agent`) — Kotlin Android app with Accessibility Service for touch injection, MediaProjection for screen capture, and OkHttp/WebSocket for real-time communication.
-2. **Web Dashboard** (`/dashboard`) — React 19 + TypeScript + Vite SPA for monitoring and controlling connected devices.
-3. **Express Backend** (`/backend`) — Node.js/TypeScript Express server providing WebSocket relay, device registry, auth, and pairing code API. Runs on port 3001.
-4. **Supabase** (`/supabase`) — PostgreSQL + Auth + Realtime. Migrations in `/supabase/migrations/`.
+1. **Android Agent** (`/android-agent`) — Kotlin Android app with JWT auth, OkHttp WebSocket, command execution, accessibility/touch control, and MediaProjection screen streaming.
+2. **Web Dashboard** (`/dashboard`) — React + TypeScript + Vite SPA for device monitoring and remote control.
+3. **Express Backend** (`/backend`) — Node.js/TypeScript server providing JWT auth, REST APIs, WebSocket relay, pairing code APIs, and database initialization.
+4. **Database** — Replit PostgreSQL via `DATABASE_URL` for users, devices, and pairing codes.
 
 ## Tech Stack
-- **Frontend:** React 19, TypeScript, Vite 8, Framer Motion, Lucide React
+- **Frontend:** React, TypeScript, Vite, Framer Motion, Lucide React
 - **Backend API:** Node.js, Express, TypeScript, WebSocket (`ws`), PostgreSQL (`pg`)
-- **Auth/Realtime:** Supabase (Auth, Realtime, device/command storage)
-- **Android:** Kotlin, Gradle (Kotlin DSL), OkHttp, Coroutines
-- **Database:** Replit PostgreSQL (pairing codes), Supabase (auth, devices, commands, logs)
+- **Auth:** Backend-issued JWT tokens with bcrypt password hashes
+- **Android:** Kotlin, Gradle Kotlin DSL, OkHttp, Gson, Coroutines
+- **Database:** Replit PostgreSQL
+
+## Current Data Flow
+```
+Dashboard ── REST /backend-api/api/* ──► Backend ──► Replit PostgreSQL
+Dashboard ── WS /backend-api/ws ───────► Backend
+Android   ── REST /api/* ──────────────► Backend
+Android   ── WS /ws?token=<JWT> ───────► Backend
+Android   ── binary JPEG frames ───────► Backend ──► Dashboard sockets
+```
 
 ## Development Setup
 The dashboard runs on port 5000, backend on port 3001.
@@ -30,73 +39,52 @@ cd dashboard && npm run dev
 cd backend && npm run dev
 ```
 
-### Build dashboard
-```bash
-cd dashboard && npm run build
+### Start both on Replit
+Use the configured workflows:
+- `Start backend`
+- `Start application`
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `backend/src/server.ts` | Express entry point and API route registration |
+| `backend/src/db/database.ts` | PostgreSQL pool and schema initialization |
+| `backend/src/auth/authService.ts` | JWT register/login/verify logic |
+| `backend/src/routes/pairingRoutes.ts` | Authenticated, database-backed pairing code routes |
+| `backend/src/routes/deviceRoutes.ts` | Device listing, command dispatch, device deletion |
+| `backend/src/websocket/wsServer.ts` | WebSocket auth, command relay, binary screen frame relay |
+| `backend/src/websocket/deviceRegistry.ts` | In-memory device cache backed by PostgreSQL |
+| `dashboard/src/services/api.ts` | Dashboard REST + WebSocket client |
+| `dashboard/src/App.tsx` | Dashboard UI and live frame rendering |
+| `android-agent/app/src/main/kotlin/com/hybridcontrol/agent/auth/AuthManager.kt` | Android backend JWT auth |
+| `android-agent/app/src/main/kotlin/com/hybridcontrol/agent/connection/WebSocketManager.kt` | Android WebSocket connection and binary frame sender |
+| `android-agent/app/src/main/kotlin/com/hybridcontrol/agent/commands/ScreenStreamService.kt` | Android live screen stream service |
+| `scripts/test-device-sim.ts` | Real-data API/WebSocket binary frame simulation |
+
+## Environment Variables
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `DATABASE_URL` | Yes | Replit PostgreSQL connection string |
+| `JWT_SECRET` | Production | JWT signing secret. Development uses an ephemeral process secret if omitted. |
+| `PORT` | Optional | Backend port, defaults to 3001 |
+
+Obsolete Supabase runtime configuration has been removed from the active environment.
+
+## Android Build Configuration
+`android-agent/local.properties` currently contains the Replit backend URL for APK builds:
+```properties
+BACKEND_URL=https://3000-9ad8c845-f14e-49f7-a14c-7b01433778c5-00-wwwlgc64rxvz.janeway.replit.dev
 ```
+For deployed builds, replace this with the deployed HTTPS backend URL.
 
-## Deployment
-- **Type:** Static site
-- **Build command:** `npm --prefix dashboard run build`
-- **Public directory:** `dashboard/dist`
+## Validation Status
+- Workflows restart successfully.
+- Backend initializes PostgreSQL schema successfully.
+- Real-data simulator creates a real user/devices through REST, opens authenticated WebSockets, sends binary JPEG data, and confirms relay to the dashboard-side socket.
+- Android APK build was attempted. Replit lacks `/home/runner/workspace/.android-sdk`, so a build-ready ZIP was generated at `builds/HybridControl-Android-build-ready.zip` for Android Studio/local execution.
 
-## Key Features
-- Auth & Role Management via Supabase Auth (OWNER/CLIENT roles)
-- Command Engine: OPEN_APP, TAKE_SCREENSHOT, DEVICE_INFO, GET_FILES, LIST_APPS, GET_BATTERY, GET_STORAGE_INFO, DELETE_FILE
-- Touch Engine: Remote tap/swipe/text input via Android Accessibility Service
-- Realtime sync via Supabase Realtime
-- Live screen streaming: Dashboard sends START_STREAM/STOP_STREAM and subscribes to `screen-{device.id}` Broadcast channel
-- Sidebar navigation dashboard: Overview, Screen, Files, Apps, Control, Info, Alerts, Log tabs
-- Interactive file browser: Navigate directories, delete files, quick-path buttons
-- App list panel: Search and click-to-open installed apps
-- Device Info tab: Battery gauge, storage bar, detailed device info table
-- Automatic JWT token refresh: Android stores refresh_token, refreshes when within 5 min of expiry, handles 401s
-- Device UUID recovery: Android recovers UUID from Supabase on startup if SharedPreferences lost it
-- Device pairing codes: 6-digit, 15-minute codes via `POST /backend-api/api/pairing/generate`
-
-## APK Versions
-- v1.1.0: Initial release (`android-agent/HybridControl-Agent-v1.1.0-release.apk`)
-- v1.2.0: Token refresh + UUID recovery fix (`android-agent/HybridControl-Agent-v1.2.0-release.apk`)
-
-## Keystore
-- Path: `android-agent/hybridcontrol-release.jks`
-- Password: `hybridcontrol2024`, Alias: `hybridcontrol`
-
-## Critical Architecture Notes
-- Commands: Dashboard → Supabase `commands` table → Android polls every 2s → updates result → Dashboard realtime subscription
-- Screen stream: Android broadcasts to `realtime:screen-{deviceUuid}` via REST broadcast API; Dashboard subscribes to `screen-{device.id}` (both are the UUID PK)
-- Commands use device UUID PK (`device.id`), NOT the Android hardware ID (`device.device_id`)
-- Token expiry: Supabase tokens expire after 1 hour; refresh is handled in AuthManager.getValidToken()
-- Android permission compliance: All required permissions (camera, microphone, storage, notifications, overlay, battery optimization) are declared in AndroidManifest.xml and requested at runtime with Arabic-language rationale dialogs. Special permissions (SYSTEM_ALERT_WINDOW, battery optimization) open the correct system settings screens.
-- Boot receiver: App auto-starts the agent on device boot if the user was already logged in.
-- Backend pairing API: `/api/pairing/generate` and `/api/pairing/claim` endpoints with Replit PostgreSQL storage. Dashboard calls them via Vite dev proxy at `/backend-api/*`.
-
-## Build Output
-- Latest signed APK: `HybridControl-v1.1.0.apk` (includes all permission updates, pairing backend support, BACKEND_URL BuildConfig)
-- Android SDK for local builds is configured via `android-agent/local.properties` with `sdk.dir=/home/runner/workspace/.android-sdk`.
-- To rebuild: `cd android-agent && ./gradlew assembleRelease`
-
-## Startup
-Run `./start.sh` to start both the backend (port 3001) and dashboard (port 5000) together.
-
-## Admin Credentials
-- **Email:** admin@hybridcontrol.com
-- **Password:** HybridAdmin@2024
-- Note: For the Supabase-based dashboard, register with these credentials (email confirmation may be required in the Supabase project settings).
-
-## Supabase Configuration
-Set the following environment variables for the dashboard:
-- `VITE_SUPABASE_URL` — Your Supabase project URL
-- `VITE_SUPABASE_ANON_KEY` — Your Supabase anonymous key
-
-## Android Build Configuration (`android-agent/local.properties`)
-- `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_ANON_KEY` — Supabase anonymous key
-- `BACKEND_URL` — Express backend URL (e.g. `https://3001-<replit-dev-domain>`) for pairing code claim
-- `sdk.dir` — Android SDK path
-
-## Backend API (Port 3001)
-The Express backend runs alongside the dashboard. Key endpoints:
-- `POST /api/pairing/generate` — Generate a 6-digit pairing code (requires `{ userId }` in body)
-- `POST /api/pairing/claim` — Claim a pairing code from Android (requires `{ code, deviceId, deviceName, model, osVersion, manufacturer }`)
-- `WS /ws` — WebSocket server for Android agent connections
+## Important Notes
+- Browser code does not access database credentials or backend secrets directly.
+- Pairing code generation is authenticated and persisted in PostgreSQL.
+- WebSocket accepts both `/ws` and `/backend-api/ws` so dev proxy and same-origin backend hosting both work.
+- Production deployment should configure `JWT_SECRET` as a secure secret before going live.

@@ -21,7 +21,17 @@ export class WSServer {
   private offlineCheckInterval: NodeJS.Timeout | null = null;
 
   constructor(server: Server) {
-    this.wss = new WebSocketServer({ server, path: '/ws' });
+    this.wss = new WebSocketServer({ noServer: true });
+    server.on('upgrade', (req, socket, head) => {
+      const pathname = new URL(req.url || '', `http://${req.headers.host}`).pathname;
+      if (pathname !== '/ws' && pathname !== '/backend-api/ws') {
+        socket.destroy();
+        return;
+      }
+      this.wss.handleUpgrade(req, socket, head, (ws) => {
+        this.wss.emit('connection', ws, req);
+      });
+    });
     this.setupWSS();
     this.startHeartbeatChecker();
     this.startOfflineChecker();

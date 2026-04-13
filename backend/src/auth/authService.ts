@@ -1,9 +1,16 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { query } from '../db/database';
 import { DeviceRole, DeviceStatus, AuthPayload } from '../types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hybrid-control-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be configured in production');
+  }
+  console.warn('[Auth] JWT_SECRET is not configured; using an ephemeral development secret');
+  return crypto.randomBytes(32).toString('hex');
+})();
 const TOKEN_EXPIRY = '30d';
 
 export class AuthService {

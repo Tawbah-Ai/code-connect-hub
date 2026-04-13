@@ -107,6 +107,7 @@ export class DeviceRegistry {
 
   static removeDevice(deviceId: string): void {
     devices.delete(deviceId);
+    query('DELETE FROM devices WHERE device_id = $1', [deviceId]).catch(() => {});
   }
 
   static checkOfflineDevices(): void {

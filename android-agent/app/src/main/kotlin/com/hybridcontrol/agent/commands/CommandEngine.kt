@@ -168,7 +168,7 @@ class CommandEngine(private val context: Context) {
     }
 
     /**
-     * Starts live screen streaming to the dashboard via Supabase Broadcast.
+     * Starts live screen streaming to the dashboard via backend WebSocket binary frames.
      * The user must grant MediaProjection permission when prompted.
      */
     private suspend fun startStream(command: RemoteCommand): CommandResult {

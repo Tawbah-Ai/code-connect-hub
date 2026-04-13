@@ -1,132 +1,106 @@
 # Hybrid Remote Device Control System
 
-A production-grade remote control system for Android devices. A single user account can link multiple devices — the first device becomes the **OWNER** (admin), and subsequent devices become **CLIENTS**. The OWNER can control CLIENT devices using command-based execution or touch-based UI automation.
+A remote control system for Android devices. A web dashboard authenticates users, lists devices, sends commands, and receives live screen frames from Android agents through the backend.
 
-## Architecture
+## Current Architecture
 
 ```
-┌─────────────────┐     WebSocket     ┌─────────────────┐     REST/WS     ┌─────────────────┐
-│  Android Agent  │ ◄──────────────► │    Backend       │ ◄────────────► │   Dashboard      │
-│  (Kotlin)       │                   │  (Node.js/TS)    │                │  (React + Vite)  │
-│                 │                   │                  │                │                  │
-│ • Command Engine│                   │ • Auth Service   │                │ • Login          │
-│ • Touch Engine  │                   │ • Device Registry│                │ • Device List    │
-│ • Hybrid Mode   │                   │ • WS Server      │                │ • Command Panel  │
-│ • Accessibility │                   │ • Command Router │                │ • Touch Controls │
-└─────────────────┘                   └─────────────────┘                └─────────────────┘
+Dashboard (React/Vite :5000)
+  ├─ REST /backend-api/api/*
+  └─ WS   /backend-api/ws
+          │
+          ▼
+Backend (Express/Node :3001)
+  ├─ JWT auth
+  ├─ device registry
+  ├─ pairing code API
+  ├─ WebSocket command + binary frame relay
+  └─ Replit PostgreSQL
+          ▲
+          │
+Android Agent (Kotlin/OkHttp)
+  ├─ REST /api/auth/* and /api/pairing/*
+  ├─ WS /ws?token=<JWT>
+  └─ MediaProjection JPEG binary streaming
 ```
 
-## Phase 1 — Android Agent (Kotlin)
+## Run on Replit
 
-**Location:** `android-agent/`
+Start the configured workflows:
 
-### Features
-- **Auth + Device Registration** — Email login, auto-assigns OWNER/CLIENT roles
-- **Persistent WebSocket** — Auto-reconnect, heartbeat every 15s
-- **Command Engine** — OPEN_APP, GET_FILES, DELETE_FILE, TAKE_SCREENSHOT, DEVICE_INFO, LIST_APPS, GET_BATTERY, GET_STORAGE_INFO
-- **Touch Engine** — Accessibility Service: Tap, Swipe, Long Press, Scroll, Input Text
-- **Hybrid Control** — Auto-selects Command or Touch engine based on capability
-- **User Activity Detection** — Screen ON/OFF monitoring
+- `Start backend` runs the Express API and WebSocket server on port `3001`.
+- `Start application` runs the Vite dashboard on port `5000` and proxies `/backend-api` to the backend.
 
-### Setup
-1. Open `android-agent/` in Android Studio
-2. Update `WS_URL` and `API_URL` in `app/build.gradle.kts` to point to your backend
-3. Build and install the debug APK
-4. Enable the Accessibility Service in device Settings
+The backend initializes the Replit PostgreSQL schema automatically on startup.
 
-### Permissions Required
-- Internet, Foreground Service, Storage, Notifications
-- Accessibility Service (for Touch Engine)
-- MediaProjection (for screenshots)
+## Backend
 
-## Phase 2 — Backend (Node.js + TypeScript)
+Location: `backend/`
 
-**Location:** `backend/`
+Key endpoints:
 
-### Features
-- **Auth** — JWT token-based registration and login
-- **Device Registry** — Tracks devices, roles, online/offline status
-- **WebSocket Server** — Real-time device connections with heartbeat monitoring
-- **Command Router** — Routes commands from OWNER to CLIENT devices
-- **REST API** — Device management and command dispatch from dashboard
-
-### Setup
-```bash
-cd backend
-npm install
-cp .env.example .env  # or create .env with PORT=3000 and JWT_SECRET
-npm run dev
-```
-
-### API Endpoints
 | Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/auth/register` | Register new user + device |
-| POST | `/api/auth/login` | Login with email/password |
-| GET | `/api/devices` | List user's devices |
-| GET | `/api/devices/:id` | Get device details |
-| POST | `/api/devices/:id/command` | Send command to device |
-| DELETE | `/api/devices/:id` | Remove device |
-| WS | `/ws` | WebSocket connection |
+| --- | --- | --- |
+| POST | `/api/auth/register` | Register a user and device, returns a JWT |
+| POST | `/api/auth/login` | Login and register/update the current device |
+| GET | `/api/devices` | List authenticated user's devices |
+| POST | `/api/devices/:deviceId/command` | Send command to a connected device |
+| DELETE | `/api/devices/:deviceId` | Remove a device from memory and database |
+| POST | `/api/pairing/generate` | Generate authenticated 6-digit pairing code |
+| POST | `/api/pairing/claim` | Claim pairing code and link Android device |
+| WS | `/ws` or `/backend-api/ws` | Authenticated WebSocket connection |
 
-### WebSocket Messages
-```json
-{ "type": "DEVICE_REGISTER", "payload": { "token": "...", "deviceId": "..." } }
-{ "type": "HEARTBEAT", "payload": { "deviceId": "...", "timestamp": 123 } }
-{ "type": "COMMAND", "payload": { "targetDeviceId": "...", "command": { "type": "DEVICE_INFO" } } }
+Authentication uses JWTs. In development, if `JWT_SECRET` is not configured, the backend uses an ephemeral secret for the current process only. For production, set `JWT_SECRET` as a secure secret before deploying.
+
+## Dashboard
+
+Location: `dashboard/`
+
+The dashboard uses `dashboard/src/services/api.ts` for all REST and WebSocket traffic. It does not connect directly to the database or external backend services from the browser.
+
+Live screen frames arrive as binary JPEG WebSocket messages and are rendered with blob URLs.
+
+## Android Agent
+
+Location: `android-agent/`
+
+`android-agent/local.properties` must contain the backend URL used by the APK build:
+
+```properties
+BACKEND_URL=https://3000-9ad8c845-f14e-49f7-a14c-7b01433778c5-00-wwwlgc64rxvz.janeway.replit.dev
 ```
 
-## Phase 3 — Dashboard (React + Vite)
+For a deployed backend, replace this value with the deployed HTTPS backend URL.
 
-**Location:** `dashboard/`
+The Android app now uses:
 
-### Features
-- **Login/Register** — Email-based authentication
-- **Device List** — Real-time device status (online/offline)
-- **Command Panel** — Send system commands to devices
-- **Touch Controls** — Remote tap, swipe, scroll, text input
-- **Control Mode Selector** — Command / Touch / Hybrid
-- **Activity Log** — Real-time command and result logging
+- `AuthManager.kt` for backend JWT login/register/pairing.
+- `WebSocketManager.kt` for `/ws?token=<JWT>` command/result/heartbeat traffic and `sendBinaryFrame`.
+- `ScreenStreamService.kt` for MediaProjection JPEG frame capture and binary WebSocket streaming.
 
-### UI Design
-- Dark futuristic theme with glassmorphism
-- Neon cyan/blue accents
-- Mobile-first responsive layout
-- Smooth animations
+## Real Data Simulation
 
-### Setup
-```bash
-cd dashboard
-npm install
-npm run dev
-```
-
-Open http://localhost:5173 in your browser.
-
-## Quick Start
+Run this from the project root while the backend workflow is running:
 
 ```bash
-# 1. Start the backend
-cd backend && npm install && npm run dev
-
-# 2. Start the dashboard (in another terminal)
-cd dashboard && npm install && npm run dev
-
-# 3. Open http://localhost:5173, register an account
-
-# 4. Install the Android APK on your device(s)
-#    Build from android-agent/ in Android Studio
+npx tsx scripts/test-device-sim.ts
 ```
 
-## Security
-- JWT token validation on all endpoints
-- Command authorization (OWNER only)
-- WebSocket authentication via Bearer token
-- Activity logging
+The simulator creates a real user and two real devices through the backend API, connects both WebSockets with real JWTs, sends a binary JPEG frame from the Android-simulated socket, and verifies the dashboard-simulated socket receives it.
 
-## Tech Stack
-| Component | Technology |
-|-----------|-----------|
-| Android Agent | Kotlin, OkHttp, Gson, MVVM |
-| Backend | Node.js, TypeScript, Express, ws |
-| Dashboard | React, TypeScript, Vite, Lucide Icons |
+## APK Build Status
+
+The Replit environment does not currently include the Android SDK path required for a full APK build. A build-ready Android Studio archive is generated at:
+
+```text
+builds/HybridControl-Android-build-ready.zip
+```
+
+Open `android-agent/` in Android Studio or extract the ZIP locally, ensure the Android SDK is installed, confirm `BACKEND_URL`, and run `./gradlew assembleRelease`.
+
+## Security Notes
+
+- Browser code only talks to the backend API; database access stays server-side.
+- Pairing code generation requires authentication and is persisted in PostgreSQL.
+- Obsolete Supabase runtime secrets/configuration were removed from the Replit environment.
+- Production deployments must configure `JWT_SECRET` as a secret.

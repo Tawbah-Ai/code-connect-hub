@@ -67,5 +67,3 @@ publicDir = "dashboard/dist"
 [userenv]
 
 [userenv.shared]
-SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhdmd0ZmFvYm96bmZzeWNtd3F5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTk3MTUwMywiZXhwIjoyMDkxNTQ3NTAzfQ.YHzz8kwbGtl1Q-llIQjSsaC3E-Bk3Qddb_XChkpNciM"
-JWT_SECRET = "8b64362a78cf1cf10b46f8934ec92b713cf4c155406aa039911a512ddb2e61cc08ca1ce3f372081fc85af7d863d55277"

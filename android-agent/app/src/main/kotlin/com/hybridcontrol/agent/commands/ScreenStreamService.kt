@@ -198,6 +198,8 @@ class ScreenStreamService : Service() {
         const val ACTION_STOP = "com.hybridcontrol.agent.STREAM_STOP"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_PROJECTION_DATA = "projection_data"
+        const val EXTRA_DEVICE_ID = "device_id"
+        const val EXTRA_TOKEN = "token"
         private const val NOTIFICATION_ID = 1002
         private const val FRAME_INTERVAL_MS = 100L  // ~10 fps
         private const val JPEG_QUALITY = 55
