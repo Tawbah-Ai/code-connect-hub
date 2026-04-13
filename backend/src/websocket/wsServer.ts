@@ -214,15 +214,9 @@ export class WSServer {
   }
 
   private handleBinaryFrame(socket: AuthenticatedSocket, data: Buffer): void {
-    // Relay raw binary screen frame from Android device to the dashboard (owner)
-    const ownerDevice = DeviceRegistry.getOwnerDevice(socket.userId);
-    if (ownerDevice) {
-      const ownerSocket = connectedSockets.get(ownerDevice.deviceId);
-      if (ownerSocket && ownerSocket.ws.readyState === WebSocket.OPEN) {
-        ownerSocket.ws.send(data, { binary: true });
-      }
-    }
-    // Also relay to all dashboard sockets for this user
+    // Relay raw binary screen frame from Android device to all other sockets
+    // for the same user (dashboard / owner devices). Avoids duplicates by using
+    // a single loop that skips only the sender.
     for (const [, sock] of connectedSockets) {
       if (sock.userId === socket.userId && sock.deviceId !== socket.deviceId) {
         if (sock.ws.readyState === WebSocket.OPEN) {

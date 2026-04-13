@@ -25,8 +25,8 @@ export enum DeviceRole {
 }
 
 export enum DeviceStatus {
-  ONLINE = 'online',
-  OFFLINE = 'offline',
+  ONLINE = 'ONLINE',
+  OFFLINE = 'OFFLINE',
 }
 
 export interface RemoteCommand {

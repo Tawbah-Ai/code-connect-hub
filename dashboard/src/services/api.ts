@@ -231,24 +231,53 @@ class BackendService {
         this.getDevices().then(callback).catch(() => {});
       }
     });
-    return unsub;
+    return this._track(unsub);
   }
 
   subscribeToCommands(_deviceId: string, callback: (result: Command) => void): () => void {
-    return wsClient.onMessage((msg) => {
+    const unsub = wsClient.onMessage((msg) => {
       if (msg.type === 'COMMAND_RESULT' && msg.payload) {
-        callback(msg.payload as unknown as Command);
+        const p = msg.payload as Record<string, unknown>;
+        // Transform backend WS payload into the Command shape the UI expects
+        const command: Command = {
+          id: (p.commandId as string) || '',
+          device_id: (p.fromDeviceId as string) || '',
+          user_id: '',
+          type: (p.type as string) || '',
+          payload: {},
+          status: p.success ? 'EXECUTED' : 'FAILED',
+          result: (p.data as Record<string, unknown>) ?? (p.error ? { error: p.error } : null),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        callback(command);
       }
     });
+    return this._track(unsub);
   }
 
   subscribeToScreenStream(callback: (frame: ArrayBuffer) => void): () => void {
-    return wsClient.onBinaryFrame(callback);
+    return this._track(wsClient.onBinaryFrame(callback));
   }
 
   async getLogs(_deviceId: string): Promise<unknown[]> { return []; }
   async addLog(_deviceId: string | null, _msg: string, _level?: string): Promise<void> {}
-  unsubscribeAll(): void {}
+
+  private _unsubscribers: (() => void)[] = [];
+
+  /** Track a subscription so it can be cleaned up via unsubscribeAll(). */
+  private _track(unsub: () => void): () => void {
+    this._unsubscribers.push(unsub);
+    return () => {
+      unsub();
+      this._unsubscribers = this._unsubscribers.filter((u) => u !== unsub);
+    };
+  }
+
+  unsubscribeAll(): void {
+    this._unsubscribers.forEach((u) => u());
+    this._unsubscribers = [];
+  }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 

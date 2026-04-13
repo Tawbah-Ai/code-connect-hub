@@ -437,7 +437,10 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   }, [fetchDevices, userId, addLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCommandResult = (type: string, result: Record<string, unknown>) => {
-    const data = result.data as Record<string, unknown> | undefined;
+    // `result` is already the unwrapped data object from the backend
+    // (e.g. {files: [...], path: '/sdcard'} for GET_FILES).
+    // If it has a nested `data` property, use that; otherwise use result directly.
+    const data = (result.data as Record<string, unknown> | undefined) ?? result;
     switch (type) {
       case 'GET_FILES': {
         const rawFiles = (data?.files as FileInfo[]) || [];
@@ -474,7 +477,12 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       }
       case 'TAKE_SCREENSHOT': {
         const img = data?.image as string;
-        if (img) { setLatestScreenshot(img); setActiveTab('screen'); }
+        if (img) {
+          // Ensure the image string has a proper data URI prefix for rendering
+          const src = img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}`;
+          setLatestScreenshot(src);
+          setActiveTab('screen');
+        }
         break;
       }
     }
