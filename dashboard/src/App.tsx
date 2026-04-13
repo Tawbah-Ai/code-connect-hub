@@ -8,7 +8,7 @@ import {
   FileText, Image, Package, RefreshCw, Search, Home, ArrowLeft,
   Terminal, Settings, Layers, Download, Eye,
 } from 'lucide-react';
-import { api, wsClient } from './services/api';
+import { api } from './services/api';
 import type {
   Device, Command, ControlMode, LogEntry, PairingCode, AppNotification,
   FileInfo, AppInfo, DeviceInfo, StorageInfo, DashTab,
