@@ -5,13 +5,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.IBinder
 import android.util.DisplayMetrics
 import android.util.Log
@@ -42,15 +43,22 @@ class ScreenStreamService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, -1)
-                val projectionData: Intent? = intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
-
-                if (projectionData != null && resultCode != -1) {
-                    startForeground(NOTIFICATION_ID, createNotification())
-                    initProjection(resultCode, projectionData)
+                val projection = ScreenCaptureManager.consumeProjection()
+                if (projection != null) {
+                    val notification = createNotification()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(
+                            NOTIFICATION_ID,
+                            notification,
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        )
+                    } else {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                    initProjection(projection)
                     startStreaming()
                 } else {
-                    Log.e(TAG, "Missing projection data, stopping service")
+                    Log.e(TAG, "No MediaProjection available, stopping service")
                     stopSelf()
                 }
             }
@@ -62,10 +70,8 @@ class ScreenStreamService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun initProjection(resultCode: Int, data: Intent) {
-        val projectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+    private fun initProjection(projection: MediaProjection) {
+        mediaProjection = projection
 
         val metrics: DisplayMetrics = resources.displayMetrics
         val scale = minOf(1.0f, MAX_WIDTH.toFloat() / metrics.widthPixels)
