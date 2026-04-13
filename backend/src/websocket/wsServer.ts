@@ -63,6 +63,12 @@ export class WSServer {
 
         console.log(`[WSServer] Device connected: ${payload.deviceId}`);
 
+        // Notify all owner sockets that a device came online
+        this.notifyOwnerSockets(payload.userId, payload.deviceId, {
+          type: 'DEVICE_STATUS_UPDATE',
+          payload: { deviceId: payload.deviceId, status: 'ONLINE' },
+        });
+
         ws.on('message', (data, isBinary) => {
           if (isBinary) {
             this.handleBinaryFrame(authSocket, data as Buffer);
@@ -75,6 +81,12 @@ export class WSServer {
           connectedSockets.delete(payload.deviceId);
           DeviceRegistry.setDeviceOffline(payload.deviceId);
           console.log(`[WSServer] Device disconnected: ${payload.deviceId}`);
+
+          // Notify all owner sockets that a device went offline
+          this.notifyOwnerSockets(payload.userId, payload.deviceId, {
+            type: 'DEVICE_STATUS_UPDATE',
+            payload: { deviceId: payload.deviceId, status: 'OFFLINE' },
+          });
         });
 
         ws.on('pong', () => {
@@ -89,6 +101,25 @@ export class WSServer {
         ws.close(4001, 'Invalid token');
       }
     });
+  }
+
+  /**
+   * Notify all OWNER sockets of the given user about a device status change,
+   * skipping the device that triggered the event.
+   */
+  private notifyOwnerSockets(
+    userId: string,
+    sourceDeviceId: string,
+    message: WSMessage
+  ): void {
+    for (const [deviceId, sock] of connectedSockets) {
+      if (sock.userId === userId && deviceId !== sourceDeviceId) {
+        const device = DeviceRegistry.getDevice(deviceId);
+        if (device?.role === DeviceRole.OWNER) {
+          this.sendToSocket(sock, message);
+        }
+      }
+    }
   }
 
   private extractToken(req: IncomingMessage): string | null {
@@ -152,6 +183,19 @@ export class WSServer {
     this.sendToSocket(socket, {
       type: 'HEARTBEAT_ACK',
       payload: { timestamp: Date.now() },
+    });
+
+    // Forward heartbeat data to the dashboard so it updates in real-time
+    this.notifyOwnerSockets(socket.userId, socket.deviceId, {
+      type: 'DEVICE_STATUS_UPDATE',
+      payload: {
+        deviceId: socket.deviceId,
+        status: 'ONLINE',
+        batteryLevel: heartbeat.batteryLevel,
+        isScreenOn: heartbeat.isScreenOn,
+        isUserActive: heartbeat.isUserActive,
+        lastSeen: new Date().toISOString(),
+      },
     });
   }
 

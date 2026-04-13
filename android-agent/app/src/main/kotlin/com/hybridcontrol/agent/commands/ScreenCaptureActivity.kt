@@ -64,16 +64,15 @@ class ScreenCaptureActivity : Activity() {
     }
 
     private fun startStream(resultCode: Int, data: Intent) {
-        val authManager = com.hybridcontrol.agent.HybridControlApp.instance.authManager
-        val deviceId = authManager.getDeviceUuid() ?: ""
-        val token = authManager.getAccessToken() ?: ""
+        // On Android 14+, MediaProjection must be obtained in the Activity
+        // context (before finish()) — store it in the singleton for the service.
+        val projManager = mediaProjectionManager
+            ?: (getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
+        val projection = projManager.getMediaProjection(resultCode, data)
+        ScreenCaptureManager.pendingProjection = projection
 
         val serviceIntent = Intent(this, ScreenStreamService::class.java).apply {
             action = ScreenStreamService.ACTION_START
-            putExtra(ScreenStreamService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(ScreenStreamService.EXTRA_PROJECTION_DATA, data)
-            putExtra(ScreenStreamService.EXTRA_DEVICE_ID, deviceId)
-            putExtra(ScreenStreamService.EXTRA_TOKEN, token)
         }
         startForegroundService(serviceIntent)
         ScreenCaptureManager.isStreaming = true

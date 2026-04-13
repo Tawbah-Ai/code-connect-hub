@@ -16,10 +16,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-/**
- * Handles authentication against the custom backend REST API.
- * No Supabase dependency — all auth goes through /api/auth/* endpoints.
- */
+// Handles authentication against the custom backend REST API.
+// No Supabase dependency — all auth goes through /api/auth/register and /api/auth/login endpoints.
 class AuthManager(private val context: Context) {
 
     private val prefs: SharedPreferences =

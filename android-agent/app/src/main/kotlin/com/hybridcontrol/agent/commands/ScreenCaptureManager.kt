@@ -2,12 +2,20 @@ package com.hybridcontrol.agent.commands
 
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjection
 
 object ScreenCaptureManager {
 
     private var pendingCommandId: String? = null
     var captureCallback: ((String, Boolean, String?) -> Unit)? = null
     var isStreaming: Boolean = false
+
+    /**
+     * Holds the MediaProjection token obtained in ScreenCaptureActivity.
+     * Must be cleared after the service has consumed it.
+     */
+    @Volatile
+    var pendingProjection: MediaProjection? = null
 
     fun requestCapture(context: Context, commandId: String) {
         pendingCommandId = commandId
@@ -42,5 +50,11 @@ object ScreenCaptureManager {
     fun clearPending() {
         pendingCommandId = null
         captureCallback = null
+    }
+
+    fun consumeProjection(): MediaProjection? {
+        val proj = pendingProjection
+        pendingProjection = null
+        return proj
     }
 }

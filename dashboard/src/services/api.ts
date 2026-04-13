@@ -226,9 +226,37 @@ class BackendService {
   // ─── Real-time subscriptions (via WebSocket) ──────────────────────────────
 
   subscribeToDevices(_userId: string, callback: (devices: Device[]) => void): () => void {
+    let cachedDevices: Device[] = [];
+
+    const refresh = () =>
+      this.getDevices().then(d => { cachedDevices = d; callback(d); }).catch(() => {});
+
+    // Populate cache on subscription start
+    refresh();
+
     const unsub = wsClient.onMessage((msg) => {
-      if (['DEVICE_STATUS_UPDATE','REGISTERED','HEARTBEAT','COMMAND_RESULT'].includes(msg.type)) {
-        this.getDevices().then(callback).catch(() => {});
+      if (msg.type === 'DEVICE_STATUS_UPDATE' && msg.payload) {
+        const p = msg.payload as Record<string, unknown>;
+        const deviceId = p.deviceId as string;
+        const status = (p.status as string || '').toUpperCase() as 'ONLINE' | 'OFFLINE';
+
+        if (!deviceId) return;
+
+        if (cachedDevices.length > 0) {
+          // Optimistic inline update for instant UI feedback
+          cachedDevices = cachedDevices.map(d =>
+            (d.id === deviceId || d.device_id === deviceId)
+              ? { ...d, status, last_seen: (p.lastSeen as string) || new Date().toISOString() }
+              : d
+          );
+          callback(cachedDevices);
+        }
+
+        // Full refresh on connect/disconnect events; skip on heartbeats (have batteryLevel)
+        if (!p.batteryLevel) refresh();
+
+      } else if (['REGISTERED', 'COMMAND_RESULT'].includes(msg.type)) {
+        refresh();
       }
     });
     return this._track(unsub);

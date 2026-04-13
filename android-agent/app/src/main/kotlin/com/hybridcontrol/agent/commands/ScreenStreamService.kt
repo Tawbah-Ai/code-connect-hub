@@ -12,7 +12,6 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import android.util.DisplayMetrics
@@ -44,15 +43,8 @@ class ScreenStreamService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, -1)
-                @Suppress("DEPRECATION")
-                val projectionData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
-                } else {
-                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
-                }
-
-                if (projectionData != null && resultCode != -1) {
+                val projection = ScreenCaptureManager.consumeProjection()
+                if (projection != null) {
                     val notification = createNotification()
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         startForeground(
@@ -63,10 +55,10 @@ class ScreenStreamService : Service() {
                     } else {
                         startForeground(NOTIFICATION_ID, notification)
                     }
-                    initProjection(resultCode, projectionData)
+                    initProjection(projection)
                     startStreaming()
                 } else {
-                    Log.e(TAG, "Missing projection data, stopping service")
+                    Log.e(TAG, "No MediaProjection available, stopping service")
                     stopSelf()
                 }
             }
@@ -78,10 +70,8 @@ class ScreenStreamService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun initProjection(resultCode: Int, data: Intent) {
-        val projectionManager =
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+    private fun initProjection(projection: MediaProjection) {
+        mediaProjection = projection
 
         val metrics: DisplayMetrics = resources.displayMetrics
         val scale = minOf(1.0f, MAX_WIDTH.toFloat() / metrics.widthPixels)
